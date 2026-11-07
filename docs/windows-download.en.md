@@ -11,7 +11,7 @@ This page can be pasted straight into a GitHub release description. Replace `<ve
 | `BaoZhang-Desktop-<version>.zip` (**recommended**) | Everyone; nothing to install | Right-click → "Extract All" into an ordinary folder (e.g. `Documents\BaoZhang`), then run `随手报账.exe` inside it. Keep the other files next to it; don't copy just the EXE, and don't run it from inside the ZIP. |
 | `BaoZhang-Desktop-Setup-<version>.exe` | If you want Start menu and desktop shortcuts | Double-click to install. Installs for the current user only, needs no administrator rights, and lets you choose the folder. Uninstall from Settings → Apps; uninstalling keeps your receipts. |
 
-Both keep your receipts in the `随手报账` folder under `%APPDATA%`, the same place as the old portable EXE, so switching between them loses nothing. Before upgrading, back up from the bottom-left of the app and close the old version.
+Both keep your receipts in the `%APPDATA%\baozhang-desktop` folder, the same place as the old portable EXE, so switching between them loses nothing. Before upgrading, back up from the bottom-left of the app and close the old version.
 
 Windows 0.3.1 and earlier only offered a portable `BaoZhang-Desktop-<version>.exe` plus the ZIP; for those releases, download the ZIP. Every time the portable EXE starts, it silently unpacks about 600 MB (over 7,000 files) into a temporary folder with no window showing, so it can look as though it won't open, and security software is more likely to block it. From 0.4.0 it is no longer provided.
 

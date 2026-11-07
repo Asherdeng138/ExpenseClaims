@@ -24,7 +24,7 @@ Download from the [GitHub release page](https://github.com/Asherdeng138/ExpenseC
 
 The app isn't signed with a commercial code-signing certificate, so Windows shows it as from an "Unknown publisher". After checking the SHA-256: if the browser says the file "isn't commonly downloaded", choose "Keep"; if Windows shows "Windows protected your PC", click "More info" → "Run anyway". If Windows Security reports a *threat* or *virus*, don't restore the file or turn off your antivirus; send the threat name to the author. See [Windows download and verification](windows-download.en.md).
 
-To upgrade, close the old version first, then run the new one. The ZIP, the installer and the old portable EXE all use the same data folder (`随手报账` under `%APPDATA%`), so switching between them doesn't lose any data.
+To upgrade, close the old version first, then run the new one. The ZIP, the installer and the old portable EXE all use the same data folder (`%APPDATA%\baozhang-desktop`), so switching between them doesn't lose any data.
 
 ## 2. First steps: language and currency
 
