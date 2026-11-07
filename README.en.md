@@ -22,6 +22,15 @@ From Windows 0.4.0 the portable EXE is no longer provided: each time it started 
 
 The release page lists the SHA-256 of every file; check a download with `Get-FileHash <file> -Algorithm SHA256`. Back up from the app's settings before upgrading. The Windows app has no trusted code-signing certificate, so you may see "isn't commonly downloaded" in the browser or "Windows protected your PC / Unknown publisher" when running it. These are reputation prompts: once the hash matches, keep the file or click "More info → Run anyway". If Defender reports a *threat* and quarantines the file, don't restore it or turn off protection; send the threat name and hash to the author. See [Windows download and verification](docs/windows-download.en.md).
 
+### What happens to my receipts when I upgrade?
+
+- **Upgrading the computer app on the same computer: nothing to sync.** Receipts are kept in `%APPDATA%\baozhang-desktop`, not in the program folder, and the old portable EXE, the ZIP and the installer all read that folder. Close the old version, open the new one, and your receipts are there. Don't delete that folder.
+- **Upgrading the phone app: install over the old version**; don't uninstall it first.
+- **New computer**: "Back up all receipts" on the old one → "Restore a desktop backup" on the new one.
+- **The phone and the computer don't sync**, and their backups can't be restored on each other.
+
+See [User guide · Upgrading, changing devices and backups](docs/user-guide.en.md#9-upgrading-changing-devices-and-backups).
+
 ## Features
 
 - **Language and currency**: switch in settings; kept after a restart (phone: settings button at the top right; computer: "Settings" at the bottom left). Each receipt keeps its own currency and nothing is converted. Changing the currency doesn't change saved receipts, and you can change one receipt's currency while editing it. Totals are shown per currency.

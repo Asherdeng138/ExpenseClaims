@@ -90,11 +90,43 @@ Local travel (Tube), Long-distance travel, Travel subsistence, Office supplies, 
 - After a successful export you can "Archive" the exported receipts. Archived receipts still appear in your lists and allowance totals, can be exported again, and can be unarchived.
 - Deleting an archived receipt in "Archive & Recycle Bin" moves it to the Recycle Bin, where you can "Restore to archive" within 30 days; after that it is removed automatically. Deleting anywhere else is permanent.
 
-## 9. Backup and moving to a new device
+## 9. Upgrading, changing devices and backups
 
-- Phone: in settings, tap "Back up all originals (ZIP)". Computer: click "Back up all receipts" at the bottom left. The backup includes the originals, details and calendar.
-- On the computer, "Restore a desktop backup" merges a backup in, skipping duplicate originals and leaving your existing calendar and settings alone. The phone has no one-tap restore yet. Phone and computer backups can't be swapped.
-- **Uninstalling the phone app or clearing its data deletes your receipts.** Back up first.
+### Upgrading the computer app (same computer): nothing to sync, your receipts are still there
+
+The desktop app doesn't keep receipts in the program folder. They live in the current Windows user's data folder, `%APPDATA%\baozhang-desktop` (which holds `receipts.json` and a `documents` folder of originals). The old portable EXE, the ZIP and the installer all read this same folder, so:
+
+1. Optionally, click "Back up all receipts" at the bottom left of the old version first, to keep a ZIP just in case.
+2. Close the old version.
+3. Extract the new ZIP and run `随手报账.exe`, or run the `Setup` installer.
+4. Your existing receipts, calendar marks and settings appear as before.
+
+Once the new version works, you can delete the old program files (the old portable EXE or the folder you extracted from an old ZIP). **Don't delete `%APPDATA%\baozhang-desktop`**: that's where your receipts are. To look at it, press Win + R, paste `%APPDATA%\baozhang-desktop` and press Enter. Uninstalling the installer version doesn't delete it either.
+
+### Upgrading the phone app: install over the old version
+
+Install the new APK over the old one; receipts, drafts and the calendar are kept. **Don't uninstall the old version first**: that deletes the receipts on your phone.
+
+### Moving to a new computer
+
+1. On the old computer, click "Back up all receipts" at the bottom left and keep the ZIP.
+2. Copy the ZIP to the new computer, then install or extract the new version and open it.
+3. Click "Restore a desktop backup" at the bottom left and choose the ZIP. The backup is merged in: duplicate originals are skipped, existing calendar marks and settings on the new computer are left alone, and each receipt keeps its own currency.
+
+If the backup would be over 250 MB, the app tells you to copy the app data folder instead. In that case, **close BaoZhang on both computers**, then copy the whole `%APPDATA%\baozhang-desktop` folder from the old computer to the same place on the new one. Only do this while the new computer has no receipts yet, or you will overwrite them.
+
+### Moving to a new phone
+
+On the old phone, tap "Back up all originals (ZIP)" in settings and keep the ZIP on a computer or cloud drive. The phone app **has no one-tap restore yet**: the ZIP keeps all originals, details and the calendar, but on the new phone you need to import the originals again with "Import images / PDFs" and check them.
+
+### Between phone and computer
+
+The phone and the computer **don't sync with each other**; each keeps its own receipts. A phone backup can't be restored on the computer, and a computer backup can't be restored on the phone. Add receipts on each device where you need them.
+
+### Backup reminders
+
+- A backup holds the originals, receipt details (including each receipt's currency) and the calendar. Restoring never changes the language and currency settings on the device.
+- **Uninstalling the phone app or clearing its data deletes your receipts.** Back up before reinstalling Windows or changing computers too.
 
 ## 10. Privacy and limits
 
