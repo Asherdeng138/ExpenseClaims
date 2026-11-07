@@ -4,7 +4,7 @@ English | [中文](README.md)
 
 The Windows desktop app (Electron). It shares its look and receipt-reading rules with the Android app. Language and currency are under "Settings" at the bottom left, and receipts are read offline on your computer; nothing is uploaded. For downloads and an overview see the [main README](../README.en.md); for step-by-step use see the [user guide](../docs/user-guide.en.md).
 
-Data is kept in the current Windows user's application data folder (`随手报账` under `%APPDATA%`). Moving the program folder, switching to the installer or uninstalling it doesn't affect your data.
+Data is kept in the current Windows user's application data folder (`%APPDATA%\baozhang-desktop`). Moving the program folder, switching to the installer or uninstalling it doesn't affect your data.
 
 ## Development
 
