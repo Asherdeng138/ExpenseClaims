@@ -6,7 +6,7 @@
 
 ## 1. 产品目标与需求来源
 
-随手报账是中文界面的本地票据整理与报账工具，支持 Android 手机和 Windows 电脑。核心流程是：
+随手报账是本地票据整理与报账工具，界面可在中文和英式英语之间切换，支持 Android 手机和 Windows 电脑。核心流程是：
 
 ```text
 选择费用种类 → 拍照或导入原件 → 获取识别候选信息
@@ -14,11 +14,13 @@
 → 选择费用种类 → 日期范围 → 勾选发票 → 合并 PDF + Excel
 ```
 
-- 金额统一为英镑 GBP；五类费用为市内交通（地铁）、市外交通、出差餐补、办公用品、客户招待。
+- 设置里可选语言（中文 / 英式英语）和货币（英镑 GBP / 欧元 EUR），持久保存。每张发票记录自己的货币，不做汇率换算，也不产生跨货币的合计。五类费用为市内交通（地铁）、市外交通、出差餐补、办公用品、客户招待。
 - 保存原始图片/PDF，并让导出明细与原件页码对应；识别结果必须可修改。
 - 日历独立标记出差、办公、休假，分别使用绿色、红色、蓝色，同时显示文字。
 - 两端各自存储，无账号、服务器、云同步或多人协作；票据识别在本机执行。
-- 出差餐补按票据记录，不自动生成无票补贴。用户已确认：仅餐补按连续出差天数 × £50 累计额度，单日可超 £50；超过整段额度只提示，不阻止保存或导出。
+- 出差餐补按票据记录，不自动生成无票补贴。餐补按“出差国家的每日标准 × 连续出差天数”累计额度，单日可超；超过整段额度只提示，不阻止保存或导出。
+- 用户已确认（2026-11-07）：标记出差时选择国家和天数。英国每天 £50（按英镑）；其他国家用《财务报销流程指南》“差旅报销申请-5”页 Hanshow 差旅费用标准里欧洲大区的“餐补（人天）”，全部按欧元（该页英国为 60 EUR，但按用户要求忽略，仍用 £50）。国家与标准写在 `parser.js` 的 `TRIP_COUNTRIES`，改动必须有新的来源。
+- 市内交通每月 £150 只对英镑适用：设置选欧元时不显示，选英镑时只统计英镑发票。
 
 用户的明确需求决定目标行为；源码和测试说明当前行为；[README.md](README.md) 与 [desktop/README.md](desktop/README.md) 提供使用说明，[docs/CHANGELOG.md](docs/CHANGELOG.md) 记录改动与测试，[docs/history/](docs/history/) 保存旧版说明和验证记录。发现相互冲突时指出具体位置，并向用户确认影响需求的部分。不要通过猜测新增报销规则、汇率、类别、同步协议或验收结论。
 
@@ -38,7 +40,8 @@
 | Windows 桥接 | `desktop/preload.cjs` | 通过 `contextBridge` 暴露限定的 `Desktop` API，提供文件选择、读写、OCR、导出与备份恢复 |
 | Windows 服务 | `desktop/service.cjs` | JSON 存储和原件目录、批量导入、去重、状态转换、PDF/Excel 导出、备份恢复 |
 | Windows 界面 | `desktop/ui/app.src.js`、`index.html`、`style.css` | 批量工作台、逐张编辑、PDF.js 预览/文本读取/栅格化、批量识别队列、日历和导出 |
-| 票据解析 | `app/src/main/assets/parser.js`、`desktop/parser.cjs` | 日期/金额/商家候选值、警告、分币转换、类别和筛选；两份必须相同（`tests/parser-sync.test.cjs` 检查） |
+| 票据解析 | `app/src/main/assets/parser.js`、`desktop/parser.cjs` | 日期/金额/商家候选值、警告、分币转换、货币格式与按币种合计、类别和筛选；两份必须相同（`tests/parser-sync.test.cjs` 检查） |
+| 语言 | `app/src/main/assets/i18n.js`、`desktop/i18n.cjs` | 以中文原文为键的英式英语对照表、带值消息的 `PATTERNS`、日期格式、页面固定文字翻译；两份必须相同。`tests/i18n.test.cjs` 扫描界面、服务、Java 和页面，任何没有英文的中文文案都会失败 |
 | 识别与裁剪 | `receipt-ocr.js`（Android assets 与 desktop 各一份，内容相同）、`app/src/main/assets/scan.js`、`desktop/ocr-worker.cjs` | 离线 PP-OCRv6（onnxruntime-web WASM）文字检测识别、按文字区域自动裁剪与透视矫正、方向校正；Android 先用 ML Kit 结果，再融合新结果；Windows 失败时回退 Tesseract |
 | 构建与分发 | Gradle 文件、`Build-Windows.ps1`、`build.cmd`、`desktop/tools/`、`.github/workflows/`、`tools/` | Android 工具链/签名/对齐检查；桌面 OCR 模型准备、前端打包和 EXE；GitHub 发布脚本 |
 
@@ -52,10 +55,10 @@ Windows PDF 识别先读前 3 页的文本层；某页有效文字不足 35 字�
 
 | 项目 | Android | Windows |
 | --- | --- | --- |
-| 当前版本 | `app/build.gradle`：0.2.1，versionCode 6 | `desktop/package.json`：0.3.1 |
-| 平台基线 | 最低 API 26，编译/目标 API 36；arm64-v8a、x86_64 | Windows 10/11 x64，Electron portable EXE 与文件夹 ZIP |
+| 当前版本 | `app/build.gradle`：0.3.0，versionCode 7 | `desktop/package.json`：0.4.0 |
+| 平台基线 | 最低 API 26，编译/目标 API 36；arm64-v8a、x86_64 | Windows 10/11 x64，Electron NSIS 安装版（当前用户）与文件夹 ZIP；0.3.1 及以前为 portable EXE |
 | 持久化 | 应用私有目录中的 `receipts.db`、`documents/`、`draft.json` | `app.getPath('userData')/data/receipts.json`、`documents/` |
-| 元数据格式 | SQLite 版本 2（从 v1 非破坏升级）；每条记录有 `currency`、`ocr`、`documents[]` | JSON `{version:1,receipts:[],days:{}}`；记录有 `blob`、`sha256`、`ocrText`、`status`、`confirmed` |
+| 元数据格式 | SQLite 版本 3（v1→v2 加归档/回收站列，v2→v3 给 `days` 加 `country`，旧出差日为空即英国）；每条记录有 `currency`、`ocr`、`documents[]`；语言和货币设置在 Activity 的 SharedPreferences | JSON `{version:1,receipts:[],days:{},tripCountries:{},settings:{language,currency}}`；`tripCountries` 只记出差日的国家代码，缺失即英国；记录有 `currency`、`blob`、`sha256`、`ocrText`、`status`、`confirmed` |
 | 待核对数据 | 当前草稿与待处理原件队列持久化在 draft.json；SQLite 只接收已确认票据 | 导入即存储，状态为 `pending/review/confirmed/failed`，可保存未确认修改 |
 | 附件组织 | 一张票据 1–30 个附件，可追加多页原件 | 一个导入文件对应一张票据；一个多页 PDF 为一条记录 |
 | 重复原件 | SHA-256 检测并提示，用户决定是否保留 | 导入/恢复按原件 SHA-256 跳过重复 |
@@ -63,7 +66,24 @@ Windows PDF 识别先读前 3 页的文本层；某页有效文字不足 35 字�
 | 限制 | 单附件 50 MB，批量最多 30 文件/250 MB；单 PDF 1–200 页，一次导出最多 200 页 | 单文件 50 MB，每批 1–100 个文件，一次导出最多 300 页，备份总量最多 250 MB |
 | ZIP 备份 | `receipts.json` 使用 `schemaVersion:1`，附 `documents/`；含已保存票据和日历，不包含独立草稿；当前无一键恢复 | `receipts.json` 使用 `version:1`，附 `documents/`；支持合并恢复并跳过重复原件，不覆盖已有日历标记 |
 
-两端数据结构和备份不直接互通；不能因为都叫 `receipts.json` 就混用。数据库中的 `currency` 列以及解析器对其他货币符号的识别，不代表支持多币种；实际保存固定 GBP，不做汇率换算。
+两端数据结构和备份不直接互通；不能因为都叫 `receipts.json` 就混用。
+
+货币与语言规则（用户已确认）：
+
+- 支持英镑和欧元两种货币，不做汇率换算。`currency` 缺失的旧记录一律视为 GBP；SQLite 无需升级版本（列一直存在且旧值都是 GBP），Windows JSON 只增加字段，`version` 保持 1，单纯加载不重写文件。
+- 已确认/已保存的发票保留自己的货币，切换设置不改动它们；Windows 未确认发票和 Android 新草稿跟随设置。编辑表单可改单张发票的货币，改后取消核对勾选，并按新货币重新生成金额候选，已填写的金额不覆盖。
+- OCR 以用户选择为准。欧元模式额外识别 `1.234,56`、`1 234,56` 和德/法/意/荷/西语的合计、税、付款、找零用词；英镑模式完全不启用这些规则。同时标有两种货币时只取所选货币；只标有另一种货币时金额照常作候选，不换算，并提示核对。欧洲语言的月份名日期尚未支持。
+- 合计按币种分开显示（`£10.00 + €5.00`）。一次导出可以混合货币：Excel 每行有货币列，金额格式带对应符号，每种货币单独合计，不产生混合总额。
+- 中文是默认语言和存储用语：类别、警告等仍以中文保存，显示时才翻译，所以切换语言不改数据。商家、备注等用户内容不翻译。导出文件名、工作表名、表头和类别跟随语言；导出的日期保持 `YYYY-MM-DD`。英文界面新增文案必须是自然的英式英语，并加入 `i18n.js` 后复制到 `desktop/i18n.cjs`。
+- 备份恢复保留每张发票的货币，缺失按 GBP，无效值拒绝；恢复不覆盖本机设置。
+
+出差国家规则（用户已确认）：
+
+- 日历标记“出差”时选国家（默认英国）和天数，天数与结束日期互相联动；Windows 当天快捷“出差”按钮沿用当天或前一天的国家，否则英国。办公、休假、清除会去掉国家。
+- 连续出差日按国家分段：换国家就是新的一段，各段用各自国家的每日标准和货币。一段里只统计与该国货币相同的已确认餐补；其他货币的餐补不计入、不换算，只提示数量。
+- 发票日期落在出差日时，货币自动改为该国货币（编辑时改日期、点日期候选、首次识别、Windows 识别服务都会跟随），用户之后仍可手动改回。改成与出差国不同的货币时，编辑预览提示这张不计入。
+- 餐补额度卡片不再受“设置选欧元”影响，始终按出差国家显示；市内交通月度额度仍只在设置为英镑时显示。
+- 瑞士、波兰、捷克、匈牙利、瑞典、丹麦、挪威、冰岛、塞尔维亚、罗马尼亚、俄罗斯、南非、以色列等地不用欧元，但公司标准以欧元给出，所以按欧元计算；当地货币（CHF、PLN 等）的发票本应用不支持。
 
 以下是必须保持的业务约束，除非用户明确要求改变：
 
@@ -72,8 +92,8 @@ Windows PDF 识别先读前 3 页的文本层；某页有效文字不足 35 字�
 - 日期格式匹配支持空格、英文月份/序数、全角字符和限定 OCR 修正；两位年份按 20xx 提供候选并提示。优先消费/交易日期，不能自动把到期日当作费用日期；同等级的多个不同日期留空供用户选择。两端显示可点击日期候选，保留手工输入，不能把日期中的 `09.10` 当作金额。
 - 日期、金额、商家和类别由用户核对；所在地手工填写。OCR 只提供候选值，不自动确认，不覆盖已有人工填写的非空字段。
 - Windows 的 `confirmed` 与 `status` 要一致；Android 的确认校验在保存入库时执行。导出只纳入已经核对的有效票据。
-- 导出先选择一个类别，再选包含两端日期的范围和具体票据；原生侧重新检查记录存在、类别和日期。按日期升序、同日按 ID 排序，PDF 页序和 Excel 明细一致。除市内交通按所选范围的月份命名外，文件名采用界面选择的日期范围和类别：`起日至止日_费用类别报账_发票合集.pdf` / `_明细汇总.xlsx`，不能改用勾选票据的实际最早/最晚日期。
-- 餐补编辑显示 Tesco、麦当劳、Sainsbury's、ASDA、Costco 快捷商家按钮，同时保留其他商家自由输入。快捷按钮只修改当前表单商家；保存时沿用原有确认与持久化流程。
+- 导出先选择一个类别，再选包含两端日期的范围和具体票据；原生侧重新检查记录存在、类别和日期。按日期升序、同日按 ID 排序，PDF 页序和 Excel 明细一致。除市内交通按所选范围的月份命名外，文件名采用界面选择的日期范围和类别：`起日至止日_费用类别报账_发票合集.pdf` / `_明细汇总.xlsx`（英文：`起日_to_止日_Travel_Subsistence_Receipts.pdf` / `_Summary.xlsx`，市内交通如 `October_2026_Local_Travel_Receipts.pdf`），不能改用勾选票据的实际最早/最晚日期。
+- 餐补编辑显示 Tesco、麦当劳（英文界面为 McDonald's）、Sainsbury's、ASDA、Costco 快捷商家按钮，同时保留其他商家自由输入。快捷按钮只修改当前表单商家；保存时沿用原有确认与持久化流程。
 - Excel 不得导出所在地/地址列；本机原有所在地字段仍保留。删除列时同步调整金额、页码、筛选范围和列宽。Excel 至少包含发票明细与分类汇总，金额为数字；商家、备注等内容为文本，不能解释为公式。两端明细列不同，不能未经需求依据强制统一。
 - 原件保持完整；删除、放弃草稿、失败回滚只清理相应文件。Android 清理附件要检查其他记录是否引用，避免误删仍被使用的原件。
 - 日历 `business/office/holiday` 与票据类别相互独立；空类型用于清除标记。修改日期范围逻辑时保留跨月、跨年和闰日正确性。
@@ -107,14 +127,16 @@ Windows PDF 识别先读前 3 页的文本层；某页有效文字不足 35 字�
 
 | 变更类型 | 适用检查 | 可以证明的范围 |
 | --- | --- | --- |
-| 解析/筛选/金额 | `node --test tests/parser.test.cjs`；检查两份解析器的同步差异 | 规则提取、日期/金额校验和筛选；当前测试直接加载 Android 解析器 |
+| 解析/筛选/金额 | `node --test tests/parser.test.cjs tests/parser-sync.test.cjs` | 规则提取、日期/金额校验、币种规则、各国出差额度和筛选；当前测试直接加载 Android 解析器 |
+| 出差国家 | Android `node tests/trips.test.cjs`；Windows `node tests/trips-ui.test.cjs`（桌面目录，先 `npm run build`） | 选国家/天数、欧元额度、货币跟随出差日、分段与英文显示；均为浏览器模拟，不含原生存储 |
+| 语言/文案 | `node --test tests/i18n.test.cjs`；Android 另跑 `node tests/settings.test.cjs`；Windows 另跑 `npm run test:settings` | 中文文案都有英文、占位符一致、没有美式拼写；不能代替人工审阅英文是否自然 |
 | Android 前端 | `node --check app/src/main/assets/app.js`；有 Playwright/浏览器时 `node tests/ui.test.cjs` | 语法和浏览器模拟交互/布局；不执行原生桥、ML Kit、SQLite 或真实导出 |
 | Android Java/构建 | 已配置 JDK/SDK/Gradle 时 `gradle --no-daemon testDebugUnitTest lintRelease assembleRelease` | Java 单测、lint、编译/打包；不等于设备验收 |
 | Android 发布 | `apksigner verify --verbose <apk>`；`zipalign -c -P 16 4 <apk>`；`python tools/check-apk-alignment.py <apk>` | 签名、16 KB ZIP 与 ELF LOAD 对齐；仍需设备 OCR 与完整流程测试 |
-| Windows 服务 | 在桌面依赖可用时 `npm test` | 存储、导入/去重、人工修改、导出页码/金额、备份恢复和校验 |
+| Windows 服务 | 在桌面依赖可用时 `npm test` | 存储、导入/去重、人工修改、设置与旧数据兼容、混币导出、导出页码/金额、备份恢复和校验 |
 | Windows 浏览器界面 | `npm run build` 后 `npm run test:ui` | 餐补商家选择/自由填写、确认勾选与导出文件名显示；使用模拟 Desktop 接口，不验证 Electron/OCR |
 | Windows 界面/OCR | `npm run build` 后 `npm run smoke` | Electron 中合成票据的真实 OCR、批量导入、修改、PDF/Excel、日历和持久化 |
-| Windows 打包 | `npm run dist` 后设置 `BAOZHANG_PACKAGED=1` 再运行 `npm run smoke` | 测试生成的 `release/win-unpacked/随手报账.exe`；不等于逐台设备或 portable EXE 全覆盖验收 |
+| Windows 打包 | `npm run dist` 后设置 `BAOZHANG_PACKAGED=1` 再运行 `npm run smoke` | 测试生成的 `release/win-unpacked/随手报账.exe`；不等于逐台设备验收，也不执行 Setup 安装器的安装/卸载 |
 | 文档/规则 | 核对源码事实、路径、链接、命令、文档一致性及修改范围 | 文档正确性；不需要因此全量下载工具链和重建两端 |
 
 - Android 工具链当前为 JDK 17、Gradle 8.13、AGP 8.13.2、SDK/Build Tools 36/36.0.0；桌面 CI 使用 Node.js 22，具体库版本以 `desktop/package.json` 为准。
@@ -144,7 +166,7 @@ Windows PDF 识别先读前 3 页的文本层；某页有效文字不足 35 字�
 归档与回收站：PDF/Excel 成功生成后可选择为本次导出的发票增加归档标记；日常列表、再次导出和餐补累计仍包含归档发票。两端有“归档与回收站”入口，可取消归档。从归档区删除才进入回收站，其他删除入口保持永久删除。回收站保留删除时间，30 × 24 小时内可恢复到归档区；期限不因重启或恢复备份而重新开始。到期后在启动或运行期间（约每分钟检查）清理信息和没有被其他记录引用的本机原件；程序关闭时不会执行清理，已导出的文件及独立备份不受影响。安卓数据库从 v1 非破坏升级到 v2；旧记录默认未归档。回收站记录不参与日常列表、导出及餐补统计。
 
 
-市内交通按每个自然月 £150 累计：已归档发票仍计入，待核对及回收站发票不计入。日历、编辑预览、确认保存及导出显示全月额度与超额提示；超额只提示，仍可保存和导出。部分日期或部分勾选不会按比例缩小月额度，也不会只统计选中发票。市内交通 PDF/Excel 文件名例：`2026年10月_市内交通报账_发票合集.pdf` / `_明细汇总.xlsx`；跨月使用 `2026年10月至11月`，跨年使用 `2026年12月至2027年1月`，月份根据导出界面选择的日期范围决定，文件名不写日。其他类别继续使用起止日期；Excel 内仍保留实际发票日期及所选导出范围。
+市内交通按每个自然月 £150 累计（只统计英镑发票，设置选欧元时不显示）：已归档发票仍计入，待核对及回收站发票不计入。日历、编辑预览、确认保存及导出显示全月额度与超额提示；超额只提示，仍可保存和导出。部分日期或部分勾选不会按比例缩小月额度，也不会只统计选中发票。市内交通 PDF/Excel 文件名例：`2026年10月_市内交通报账_发票合集.pdf` / `_明细汇总.xlsx`；跨月使用 `2026年10月至11月`，跨年使用 `2026年12月至2027年1月`，月份根据导出界面选择的日期范围决定，文件名不写日。其他类别继续使用起止日期；Excel 内仍保留实际发票日期及所选导出范围。
 
 ## 2026-10-11 交互与发布约束
 
@@ -153,3 +175,4 @@ Windows PDF 识别先读前 3 页的文本层；某页有效文字不足 35 字�
 - Windows 支持窗口任意位置拖入实际文件或含原件字节的虚拟图片；来源只传链接时不能擅自联网获取。提供用户主动触发的微信图片粘贴入口，输入框正常粘贴文本。Electron 44 使用异步 ClipboardItem API，不能调用已删除的 readImage/writeImage。
 - Defender 本机扫描只说明对应文件在该机器上的扫描结果，不能承诺接收者浏览器或云查杀不会拦截。未知来源安装提示是 Android 系统要求。不能以关闭安全防护、增加排除项、移除下载标记或伪造受信任证书作为修复。
 - Windows 应用资源编辑不是代码签名；当前没有受信任 Authenticode 证书。EXE 与 ZIP 均交付文件哈希；必要时由用户授权后将具体文件提交 Microsoft 复核。签名材料、凭据和发票不得混入软件发布包。
+- 2026-11-07 起 Windows 发布 NSIS 安装版 `BaoZhang-Desktop-Setup-<版本>.exe`（`perMachine:false`，不提权，卸载保留数据）与 ZIP，ZIP 为推荐下载；不再发布 portable EXE：它每次启动静默解压约 600 MB / 7100 个文件到 `%TEMP%`，无任何窗口，并有过临时目录冲突问题（见 `docs/history/release-testing-0.2.4.md`），也是用户报告被拦截/打不开的文件。下载、校验与安全提示说明以 [docs/windows-download.md](docs/windows-download.md) 为准，发布说明须写明安装版文件名和 `Get-FileHash` 校验方法（`publish-release.ps1` 会检查）。

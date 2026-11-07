@@ -2,6 +2,64 @@
 
 每次修改记录：改了什么、为什么、实际跑过的检查。基线快照：`../_backups/2026-10-13-baseline/`（含 `source-manifest.sha256`，签名文件单独在 `signing/`）。
 
+## 2026-11-07 · 发布 Android 0.3.0（versionCode 7）/ Windows 0.4.0；双语文档
+
+- 版本号：Android 0.2.1 → 0.3.0、versionCode 6 → 7；Windows 0.3.1 → 0.4.0（含语言/货币设置、出差国家，以及下面的安装版改动）。
+- 修复：安卓“设置与说明”页写死显示“随手报账 · 0.1.3”，电脑版页脚写死“随手报账 0.2.5”，现改为当前版本，并新增 `tests/version-label.test.cjs`，版本号与 `app/build.gradle`、`desktop/package.json` 不一致时测试失败。
+- 新增双语用户手册 `docs/user-guide.md` / `docs/user-guide.en.md`、`README.en.md`、`desktop/README.en.md`、`docs/windows-download.en.md`；中文文档加语言切换链接。
+
+检查（均为改完后的最终产物）：
+- Android `tools/build-release-android.cmd`：Java 单测、`lintRelease`（0 错误，5 个依赖版本/既有警告）、签名 APK、`zipalign -c -P 16 4` 通过；签名证书 SHA-256 `197e8692…16a6463b` 与 0.2.1 相同，可覆盖安装；`check-apk-alignment.py` 通过；APK 内 `assets/app.js` 显示 0.3.0。
+- 根目录 `node --test` 解析/同步/语言/版本号 72 项、`android-migration`（`--experimental-sqlite`）5 项通过；Android 浏览器 `ui`、`settings`、`trips`、`summary`、`preview-batch`、`deletion` 通过；`smart-scan` 需外部票据照片，未运行。
+- Windows `tools/build-release-desktop.cmd`：服务 18/18、`test:ui`（3 项）、真实 OCR `smoke`、打包、打包后 `smoke` 通过；另跑 `settings-electron`、`viewer`、`multi-drop`、`drop`（源码与打包后各一次）、`summary`、`ocr-failure` 通过。
+- 安装版实测：`Setup-0.4.0.exe /S /currentuser` 安装成功（约 52 秒，写入当前用户卸载项与开始菜单/桌面快捷方式），对安装后的程序跑 `smoke` 全部功能断言通过（当时本机截图步骤对任何构建都超时，含此前通过的 `win-unpacked`，故去掉截图后运行）；静默卸载后程序目录、卸载项和快捷方式均被清除，未触碰 `%APPDATA%` 数据。
+- 本机 Defender（签名 1.463.176.0，云保护关闭）扫描 APK、Setup EXE、ZIP 均无威胁；Setup EXE 仍为 NotSigned。
+
+未验收：Android 真机（v2→v3 升级、相机、原生存储与导出）；他人电脑上的浏览器下载信誉与 SmartScreen 实际表现。
+
+## 2026-11-07 · Windows 改为发布安装版 + ZIP，停发便携 EXE
+
+起因：用户从 GitHub 下载 `BaoZhang-Desktop-<版本>.exe`（便携版）时被 Windows 安全/浏览器拦截或打不开，ZIP 正常。
+
+- 原因：便携版是 electron-builder 的 NSIS 自解压壳，静默模式、无启动画面，每次启动都把约 600 MB / 7100 个文件解压到 `%TEMP%` 再运行，退出后删除，期间没有任何窗口；0.2.4 还因这个临时目录出过重复启动冲突。文件没有 Authenticode 签名（`Get-AuthenticodeSignature`：NotSigned；构建日志中的“signing with signtool.exe”只是改资源），下载量又少，所以浏览器下载信誉检查和 SmartScreen 会提示“不常下载/未知发布者”。本机 Defender（签名 1.463.176.0）扫描 0.3.1 的 EXE、ZIP、`win-unpacked` 均无威胁，但本机云保护（MAPS）关闭，扫描结果不代表用户电脑上的云端判定。
+- `desktop/package.json`：目标从 `portable` 改为 `nsis`（`BaoZhang-Desktop-Setup-<版本>.exe`，当前用户安装、不提权、可选目录、卸载保留数据），ZIP 不变；`npm run dist` 同步。数据目录仍是 `%APPDATA%` 下的应用文件夹，与旧便携版相同。
+- `tools/publish-release.ps1` 上传 Setup EXE 和 ZIP，并要求发布说明写明安装版文件名和 `Get-FileHash` 校验方法；`.github/workflows/desktop.yml` 为两者生成 `SHA256SUMS-desktop-<版本>.txt` 并一起上传（原来只上传 EXE 和它的哈希）。
+- 新增 [docs/windows-download.md](windows-download.md)：选哪个文件、SHA-256 校验、三类安全提示的区别与做法（信誉提示 vs Defender 报毒），可直接复制到发布说明；根 README、desktop/README、AGENTS.md 同步。
+
+检查：用新配置打包到独立目录 `desktop/release-check/`（版本号仍为 0.3.1，只用于验证，不发布）：electron-builder 成功生成 `BaoZhang-Desktop-Setup-0.3.1.exe`（181,505,381 字节，SHA-256 `be71280b…04fa70`）和 ZIP（`045c37de…eb03206`）；Defender 扫描 Setup EXE、ZIP、`win-unpacked` 均无威胁，两个 EXE 均 NotSigned；对 `release-check/win-unpacked` 跑打包后的 `smoke`（真实 OCR、导入、编辑、PDF/Excel 导出、归档、回收站、持久化）通过。
+
+未验收：没有实际运行安装器的安装/卸载（会写当前用户注册表和快捷方式）；没有办法在本机验证浏览器下载信誉和 SmartScreen 对新文件的实际表现，未签名的新 EXE 仍会出现“未知发布者”提示，只有代码签名并积累信誉后才会消失。
+
+## 2026-11-07 · 出差国家与欧洲大区餐补标准（两端）；全面随机测试
+
+来源：用户提供的《财务报销流程指南》第 16 页“2.4 差旅报销申请-5”所附 Hanshow 差旅费用标准（表格是图片，逐行放大核对）。用户要求：英国维持每天 £50；其他欧洲大区国家用表中“餐补（人天）”，按欧元计算。
+
+- 标记出差时选择国家和天数（天数与结束日期联动）。共 29 个选项：英国 £50；荷兰、比利时、卢森堡、德国、法国、奥地利、爱尔兰、以色列等中东国家 €50；瑞士、芬兰、瑞典、丹麦、挪威、冰岛 €60；波兰、意大利、希腊、西班牙、葡萄牙、捷克、斯洛伐克、匈牙利、塞尔维亚、罗马尼亚、保加利亚、俄罗斯、南非、克罗地亚等其他东欧国家 €40。
+- 额度按“国家每日标准 × 连续出差天数”，换国家另起一段；只统计与该国货币相同的已确认餐补，其他货币的只提示数量，不换算。
+- 发票日期落在出差日时货币自动改为该国货币，之后可手动改回；Windows 批量识别也会按出差日选货币并用对应规则读金额。
+- 餐补卡片不再因“设置选欧元”而隐藏（欧元现在有了标准）；市内交通 £150 月额度仍只在英镑设置下显示。
+- 数据：Android SQLite 升到版本 3（`days` 加 `country`，旧出差日为空即英国，备份 JSON 增加 `countries`）；Windows JSON 增加 `tripCountries`，`version` 仍为 1，备份恢复只为新加的日期带上国家。
+- 随机测试发现并修复：同一天、同商家、同数字但一张英镑一张欧元的发票被误报为疑似重复；切换语言后屏幕上残留旧语言的提示条。随机点击中出现的“页面崩溃”经核实是测试脚本超时杀掉浏览器造成的，改前改后的版本表现相同，不是应用问题。
+
+检查：解析/同步/迁移/语言 `node --test` 75/75；Windows 服务 18/18；Java 单测 11/11 与 `lintRelease` 通过；Android 浏览器 `ui`、`settings`、`trips`、`summary`、`preview-batch`、`deletion` 通过；桌面 `ui`、`settings-ui`、`trips-ui`、`summary`、`ocr-failure` 通过；Electron 中 `settings-electron`（含真实 IPC 标记瑞士出差）、`smoke`（真实 OCR）、`viewer`、`multi-drop`、`drop` 通过。随机测试：解析器 8 万次解析、Windows 存储 600 次随机操作、两端界面随机点击，均未发现异常。
+
+未验收：Android 真机（数据库 v2→v3 升级、原生日历写入）；当地货币（CHF、PLN、SEK 等）发票不支持；法国“大巴黎”、英国“伦敦”等只影响住宿标准的细分未做（餐补无差别）。
+
+## 2026-11-01 · 语言与货币设置（两端）
+
+用户确认的规则：额度只对英镑有效，选欧元时不提醒，欧元发票也不计入；每张发票记录自己的货币，不做汇率换算；导出文件名和 Excel 内容跟随语言；一次导出可混合货币，分币种合计。
+
+- 语言：新增 `app/src/main/assets/i18n.js` 与相同的 `desktop/i18n.cjs`，以中文为键的英式英语对照表；两端界面、提示、原生错误、系统对话框、预览窗口都走这张表。中文仍是默认语言和存储用语，切换语言不改数据；商家、备注不翻译。
+- 货币：两端设置可选 GBP / EUR，重启保留。编辑表单新增单张发票的货币选择（原需求没有写，加上是因为否则保存错的货币无法改正）。合计按币种分开显示。
+- 识别：`parse(text,{currency})`。欧元模式增加 `1.234,56`、`1 234,56`、`12,50 €` 与德/法/意/荷/西语用词；票据同时标两种货币时只取所选货币，只标另一种货币时提示核对。对比旧解析器：解析测试里 60 段文本中 53 段（没有欧元标记的全部）英镑模式结果完全相同，其余 7 段都带欧元金额，差异只是新增的提示或优先取 £ 金额。
+- 导出：Excel 增加货币列（Windows 8 列，Android 10 列），金额带对应符号格式，每种货币单独合计；英文文件名如 `2026-10-01_to_2026-10-31_Travel_Subsistence_Receipts.pdf`。
+- 数据兼容：SQLite 仍为版本 2；Windows JSON 仍为 `version:1`，只增加字段。旧记录视为 GBP；备份恢复保留货币、拒绝无效值、不覆盖本机设置。
+- 测试：新增 `tests/i18n.test.cjs`、`tests/settings.test.cjs`、`desktop/tests/settings-ui.test.cjs`、`desktop/tests/settings-electron.test.cjs`，并扩充解析、服务、迁移和 Java 测试。`desktop/tests/ui.test.cjs` 固定页面时钟为 2026-10-20：它依赖“当月含 2026-10-09”，进入 11 月后本来就会失败，与本次改动无关。
+
+检查（Node 22 为 `.tools/node`；迁移测试需要 `node:sqlite`，用 Electron 自带的 Node 24 跑）：解析、同步、迁移、语言 4 个文件 `node --test` 全部通过；`desktop` 服务测试 16/16；Java 单测 11/11，`lintRelease` 通过；Android 浏览器 `ui`、`settings`、`summary`、`preview-batch`、`deletion` 通过；桌面 `ui`、`settings-ui`、`settings-electron`、`summary`、`ocr-failure`、`viewer`、`multi-drop`、`smoke` 通过。`drop.test` 与 Gradle 同时运行时在恢复系统剪贴板那一步失败过一次，单独重跑两次都通过。`smart-scan` 因没有样张照片而跳过。
+
+未验收：Android 真机或模拟器（原生设置读写、英文系统对话框、ML Kit 识别欧元票据、真实导出）未测；真实欧元票据的识别准确率未评估，欧洲语言词表是按规则写的，只用合成样例验证过；英文文案未经英语母语者审阅；打包后的 EXE/APK 未构建。应用图标名称（随手报账）不随语言切换。
+
 ## 2026-10-13 · 字段解析改进（P2 第一步，两端共用）
 
 改动文件：`app/src/main/assets/parser.js`、`desktop/parser.cjs`（两份保持一致）、`tests/parser.test.cjs`（新增 7 项）、新增 `tests/parser-sync.test.cjs`、`tools/eval-ocr.cjs`；`DELEGATION.md`/`AGENTS.md` 委派规则；新增 `CLAUDE.md`（只引用 AGENTS.md）。

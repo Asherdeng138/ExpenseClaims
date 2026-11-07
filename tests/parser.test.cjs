@@ -166,3 +166,72 @@ test('home summary: chosen period and category, trash and invalid rows excluded'
  assert.equal(P.summarize(rows,{today:'2026-01-15',period:'lastMonth'}).label,'上月（2025年12月）');
  assert.equal(P.summarize(rows,{...o,category:'bogus'}).categoryLabel,'全部类别');
 });
+test('euro mode reads continental amounts and euro receipt wording',()=>{
+ const euro={currency:'EUR',today:'2026-11-01'};
+ let r=P.parse('REWE Markt\n09.10.2026\nSumme 1.234,56 EUR\nMwSt 19% 197,12\nKarte 1.234,56',euro);assert.equal(r.currency,'EUR');assert.equal(r.amount,'1234.56');assert.equal(r.date,'2026-10-09');assert.ok(!r.amounts.includes('197.12'),'VAT is not a total');
+ r=P.parse('Carrefour\n09/10/2026\nTotal HT 10,00\nTVA 20% 2,00\nTotal TTC 12,00 €\nCarte bancaire 12,00',euro);assert.equal(r.amount,'12.00');assert.deepEqual(r.amounts,['12.00']);
+ r=P.parse('Bar Roma\nTotale 12,50\nContanti 20,00\nResto 7,50',euro);assert.equal(r.amount,'12.50');assert.deepEqual(r.amounts,['12.50']);
+ r=P.parse('Shop\nZu zahlen\n12,50 EUR',euro);assert.equal(r.amount,'12.50');
+ r=P.parse('Boulangerie\nTotal 1 234,56 €',euro);assert.equal(r.amount,'1234.56');
+ r=P.parse('Shop\nSumme inkl. MwSt 8,40',euro);assert.equal(r.amount,'8.40');
+ r=P.parse('Dublin Cafe\nTotal €18.20\nVisa €18.20',euro);assert.equal(r.amount,'18.20');
+});
+test('the chosen currency decides: pound mode ignores euro wording and formats',()=>{
+ assert.equal(P.parse('Shop\nSumme 12,50',{currency:'GBP'}).amount,'','"Summe" is only a total in euro mode');
+ assert.deepEqual(P.parse('Shop\nTotal 1.234,56',{currency:'GBP'}).amounts,[],'Continental thousands are only read in euro mode');
+ for(const text of ['TESCO\n09/10/2026\nSubtotal 10.67\nVAT 2.13\nTOTAL £12.80\nCash tendered 20.00\nChange 7.20','Great Western Railway\n9 Oct 2026\nAmount paid\n£32.40','Office Shop\n2026-10-09\nGRAND TOTAL £1,234.56']){
+  const opts={today:'2026-11-01'},plain=P.parse(text,opts),pounds=P.parse(text,{...opts,currency:'GBP'});assert.deepEqual(pounds,plain,'Pound mode is the default');
+ }
+});
+test('a receipt quoting both currencies shows only the chosen one',()=>{
+ let r=P.parse('Shop\nTOTAL £10.00 €11.70',{currency:'EUR'});assert.equal(r.amount,'11.70');assert.deepEqual(r.amounts,['11.70']);
+ r=P.parse('Shop\nTOTAL £10.00 €11.70',{currency:'GBP'});assert.equal(r.amount,'10.00');assert.deepEqual(r.amounts,['10.00']);
+ r=P.parse('Shop\nTotal £10.00\nTotal €11.70',{currency:'EUR'});assert.equal(r.amount,'11.70');
+ assert.ok(!P.parse('Shop\nTOTAL £10.00 €11.70',{currency:'EUR'}).warnings.some(w=>w.includes('票据上的金额')));
+});
+test('an amount in the other currency is kept without conversion and flagged',()=>{
+ let r=P.parse('Shop\nTotal €12.50',{currency:'GBP'});assert.equal(r.amount,'12.50');assert.ok(r.warnings.some(w=>w.includes('标着 €')&&w.includes('不做汇率换算')));
+ r=P.parse('Shop\nTotal £12.50',{currency:'EUR'});assert.equal(r.amount,'12.50');assert.ok(r.warnings.some(w=>w.includes('标着 £')));
+ r=P.parse('Euro Car Parks\nTotal £12.50',{currency:'GBP'});assert.ok(!r.warnings.some(w=>w.includes('票据上的金额')),'A shop name is not a currency');
+ assert.ok(P.parse('Shop\nTotal €]2.50',{currency:'EUR'}).amounts.includes('12.50'));
+});
+test('currency formatting never adds different currencies together',()=>{
+ assert.equal(P.formatMoney(123456,'EUR'),'€1,234.56');assert.equal(P.formatMoney(5,'GBP'),'£0.05');assert.equal(P.formatMoney(100,undefined),'£1.00');
+ const rows=[{amountMinor:1000},{amountMinor:250,currency:'GBP'},{amountMinor:700,currency:'EUR'}];assert.deepEqual(P.totals(rows),{GBP:1250,EUR:700});
+ assert.equal(P.formatTotals(P.totals(rows),'GBP'),'£12.50 + €7.00');assert.equal(P.formatTotals({EUR:5},'GBP'),'€0.05');assert.equal(P.formatTotals({},'EUR'),'€0.00');
+ const s=P.summarize([{date:'2026-10-02',category:P.CATEGORIES[2],amountMinor:1000},{date:'2026-10-03',category:P.CATEGORIES[2],amountMinor:300,currency:'EUR'}],{today:'2026-10-17'});assert.deepEqual(s.totals,{GBP:1000,EUR:300});assert.equal(s.totalMinor,1000);assert.equal(s.count,2);
+});
+test('allowances count pound receipts only',()=>{
+ const meal=(id,amountMinor,currency)=>({id,date:'2026-10-09',category:P.CATEGORIES[2],amountMinor,confirmed:true,...(currency?{currency}:{})}),city=(id,amountMinor,currency)=>({...meal(id,amountMinor,currency),category:P.CATEGORIES[0]}),days={'2026-10-09':'business'};
+ assert.equal(P.tripBudgets([meal('a',1000),meal('b',2000,'GBP'),meal('c',9000,'EUR')],days)[0].totalMinor,3000);assert.equal(P.tripBudgets([meal('c',9000,'EUR')],days)[0].overMinor,0);
+ assert.equal(P.monthlyTransportBudgets([city('a',1000),city('b',99999,'EUR')])[0].totalMinor,1000);assert.deepEqual(P.monthlyTransportBudgets([city('b',99999,'EUR')]),[]);
+});
+test('English export names and summary labels',()=>{
+ assert.deepEqual(P.exportNames(P.CATEGORIES[2],'2026-10-01','2026-10-31','en'),{base:'2026-10-01_to_2026-10-31_Travel_Subsistence',pdf:'2026-10-01_to_2026-10-31_Travel_Subsistence_Receipts.pdf',xlsx:'2026-10-01_to_2026-10-31_Travel_Subsistence_Summary.xlsx'});
+ assert.equal(P.exportNames(P.CATEGORIES[0],'2026-10-01','2026-10-31','en').base,'October_2026_Local_Travel');assert.equal(P.exportNames(P.CATEGORIES[0],'2026-10-10','2026-11-20','en').base,'October_to_November_2026_Local_Travel');assert.equal(P.exportNames(P.CATEGORIES[0],'2026-12-10','2027-01-20','en').base,'December_2026_to_January_2027_Local_Travel');
+ for(const c of P.CATEGORIES)assert.match(P.exportNames(c,'2026-10-01','2026-10-02','en').pdf,/^[A-Za-z0-9_.-]+$/,'Names stay plain ASCII');
+ assert.equal(P.exportNames(P.CATEGORIES[1],'2026-10-01','2026-10-02','en').base,'2026-10-01_to_2026-10-02_Long_Distance_Travel');assert.equal(P.exportNames(P.CATEGORIES[3],'2026-10-01','2026-10-02','en').base,'2026-10-01_to_2026-10-02_Office_Supplies');assert.equal(P.exportNames(P.CATEGORIES[4],'2026-10-01','2026-10-02','en').base,'2026-10-01_to_2026-10-02_Client_Entertainment');
+ assert.equal(P.exportNames(P.CATEGORIES[2],'2026-10-01','2026-10-31').pdf,'2026-10-01至2026-10-31_出差餐补报账_发票合集.pdf','Chinese stays the default');
+ const o={today:'2026-10-17',lang:'en'};assert.equal(P.summarize([],o).label,'This month (October 2026)');assert.equal(P.summarize([],{...o,period:'lastMonth'}).label,'Last month (September 2026)');assert.equal(P.summarize([],{...o,period:'thisYear'}).label,'This year (2026)');assert.equal(P.summarize([],{...o,period:'all'}).label,'All time');assert.equal(P.summarize([],{...o,period:'calendarMonth',viewMonth:'2025-12'}).label,'December 2025 (from calendar)');assert.equal(P.summarize([],o).categoryLabel,'All categories');assert.equal(P.summarize([],{...o,category:P.CATEGORIES[3]}).categoryLabel,'Office supplies');
+ assert.equal(P.merchantLabel('麦当劳','en'),"McDonald's");assert.equal(P.merchantLabel('麦当劳','zh'),'麦当劳');
+});
+test('trip countries: Hanshow Europe-region daily meal allowances, UK kept at £50',()=>{
+ const want={GB:['GBP',5000],NL:['EUR',5000],BE:['EUR',5000],LU:['EUR',5000],DE:['EUR',5000],FR:['EUR',5000],CH:['EUR',6000],PL:['EUR',4000],IT:['EUR',4000],AT:['EUR',5000],GR:['EUR',4000],ES:['EUR',4000],IE:['EUR',5000],PT:['EUR',4000],FI:['EUR',6000],CZ:['EUR',4000],SK:['EUR',4000],HU:['EUR',4000],SE:['EUR',6000],DK:['EUR',6000],NO:['EUR',6000],IS:['EUR',6000],RS:['EUR',4000],RO:['EUR',4000],BG:['EUR',4000],RU:['EUR',4000],ZA:['EUR',4000],HR:['EUR',4000],IL:['EUR',5000]};
+ assert.deepEqual(Object.fromEntries(P.TRIP_COUNTRIES.map(c=>[c.code,[c.currency,c.dailyMinor]])),want);
+ assert.equal(P.countryLabel('DE','zh'),'德国');assert.equal(P.countryLabel('DE','en'),'Germany');assert.equal(P.countryLabel(undefined,'en'),'United Kingdom','No country means the UK');assert.equal(P.tripCountry('XX').code,'GB');
+});
+test('trips split by country, use that country rate and count only receipts in its currency',()=>{
+ const days={'2026-10-05':'business','2026-10-06':'business','2026-10-07':'business','2026-10-08':'business','2026-10-09':'business','2026-10-10':'office','2026-10-11':'business'},countries={'2026-10-06':'DE','2026-10-07':'DE','2026-10-08':'CH','2026-10-09':'CH'};
+ const meal=(id,date,amountMinor,currency)=>({id,date,category:P.CATEGORIES[2],amountMinor,currency,confirmed:true});
+ const rows=[meal('uk','2026-10-05',4000,'GBP'),meal('de1','2026-10-06',6000,'EUR'),meal('de2','2026-10-07',5000,'EUR'),meal('de-pounds','2026-10-07',900,'GBP'),meal('ch','2026-10-08',12500,'EUR'),meal('later','2026-10-11',1000)];
+ const trips=P.tripBudgets(rows,days,countries).map(t=>[t.from,t.to,t.country,t.currency,t.days,t.limitMinor,t.totalMinor,t.remainingMinor,t.overMinor,t.otherCurrencyIds]);
+ assert.deepEqual(trips,[['2026-10-05','2026-10-05','GB','GBP',1,5000,4000,1000,0,[]],['2026-10-06','2026-10-07','DE','EUR',2,10000,11000,0,1000,['de-pounds']],['2026-10-08','2026-10-09','CH','EUR',2,12000,12500,0,500,[]],['2026-10-11','2026-10-11','GB','GBP',1,5000,1000,4000,0,[]]]);
+ assert.equal(P.tripCurrencyOn('2026-10-06',days,countries),'EUR');assert.equal(P.tripCurrencyOn('2026-10-05',days,countries),'GBP');assert.equal(P.tripCurrencyOn('2026-10-10',days,countries),'');assert.equal(P.tripCurrencyOn('2026-10-20',days,countries),'');
+ assert.equal(P.tripBudgets([meal('x','2026-12-31',100,'EUR'),meal('y','2027-01-01',100,'EUR')],{'2026-12-31':'business','2027-01-01':'business'},{'2026-12-31':'FR','2027-01-01':'FR'})[0].totalMinor,200,'A trip across the new year stays one trip');
+});
+test('a pound and a euro receipt with the same date, merchant and number are not duplicates',()=>{
+ const rows=[{id:'a',date:'2026-10-09',merchant:'Shop',amountMinor:1000,currency:'GBP',documents:[]}];
+ assert.equal(P.receiptDuplicates({date:'2026-10-09',merchant:'Shop',amount:'10.00',currency:'EUR',documents:[]},rows).matches.length,0);
+ assert.equal(P.receiptDuplicates({date:'2026-10-09',merchant:'Shop',amount:'10.00',currency:'GBP',documents:[]},rows).matches.length,1);
+ assert.equal(P.receiptDuplicates({date:'2026-10-09',merchant:'Shop',amount:'10.00',documents:[]},rows).matches.length,1,'No currency means pounds');
+});

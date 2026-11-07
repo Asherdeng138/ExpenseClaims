@@ -21,6 +21,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
     openExport:async()=>{}
    };
   });
+  await page.clock.setFixedTime(new Date('2026-10-20T12:00:00'));
   await page.goto(process.env.BAOZHANG_UI_URL||pathToFileURL(path.resolve(__dirname,'../ui/index.html')).href);
   await page.waitForSelector('body[data-ready=true]');assert.equal(await page.locator('[data-daytype]').count(),4);await page.locator('[data-day="2026-10-09"]').click();
   for(const type of ['office','holiday','','business']){await page.locator('[data-daytype="'+type+'"]').click();await page.locator('[data-daytype="'+type+'"].active').waitFor();assert.equal(await page.evaluate(()=>window.__marked.at(-1).type),type);}

@@ -2,8 +2,24 @@
   'use strict';
   const CATEGORIES=['市内交通（地铁）','市外交通','出差餐补','办公用品','客户招待'];
   const MEAL_MERCHANTS=['Tesco','麦当劳',"Sainsbury's",'ASDA','Costco'];
-  function exportNames(category,from,to){
+  // Categories stay stored in Chinese; these are display and file-name labels only.
+  const CATEGORY_EN=['Local travel (Tube)','Long-distance travel','Travel subsistence','Office supplies','Client entertainment'];
+  const CATEGORY_FILE_EN=['Local_Travel','Long_Distance_Travel','Travel_Subsistence','Office_Supplies','Client_Entertainment'];
+  const MONTHS_EN=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  // Every receipt records its own currency; amounts are never converted.
+  const CURRENCIES=['GBP','EUR'],CURRENCY_SYMBOLS={GBP:'£',EUR:'€'};
+  function normalizeCurrency(c){return c==='EUR'?'EUR':'GBP';}
+  function currencyOf(r){return normalizeCurrency(r&&r.currency);}
+  function categoryLabel(category,lang){const i=CATEGORIES.indexOf(category);return lang==='en'&&i>=0?CATEGORY_EN[i]:category;}
+  function merchantLabel(name,lang){return lang==='en'&&name==='麦当劳'?"McDonald's":name;}
+  function exportNames(category,from,to,lang){
     if(!CATEGORIES.includes(category)||!validDate(from)||!validDate(to)||to<from)throw Error('请选择费用种类和有效日期范围');
+    if(lang==='en'){
+      const label=CATEGORY_FILE_EN[CATEGORIES.indexOf(category)],month=date=>MONTHS_EN[Number(date.slice(5,7))-1],year=date=>date.slice(0,4);
+      const period=from.slice(0,7)===to.slice(0,7)?month(from)+'_'+year(from):year(from)===year(to)?month(from)+'_to_'+month(to)+'_'+year(from):month(from)+'_'+year(from)+'_to_'+month(to)+'_'+year(to);
+      const base=category===CATEGORIES[0]?period+'_'+label:from+'_to_'+to+'_'+label;
+      return {base,pdf:base+'_Receipts.pdf',xlsx:base+'_Summary.xlsx'};
+    }
     const monthLabel=date=>`${date.slice(0,4)}年${Number(date.slice(5,7))}月`;
     const cityPeriod=monthLabel(from)+(from.slice(0,7)===to.slice(0,7)?'':
       '至'+(from.slice(0,4)===to.slice(0,4)?`${Number(to.slice(5,7))}月`:monthLabel(to)));
@@ -22,6 +38,9 @@
     const [a,b='']=v.split('.');const n=Number(a)*100+Number(b.padEnd(2,'0'));if(n<=0)throw Error('金额须大于 0');return n;
   }
   function money(n){return (Number(n)/100).toFixed(2);}
+  function formatMoney(n,currency){return CURRENCY_SYMBOLS[normalizeCurrency(currency)]+money(n).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
+  // Each currency keeps its own total: "£10.00 + €5.00". There is never a combined figure.
+  function formatTotals(byCurrency,fallback){const parts=CURRENCIES.filter(c=>byCurrency&&byCurrency[c]).map(c=>formatMoney(byCurrency[c],c));return parts.length?parts.join(' + '):formatMoney(0,fallback);}
   function receiptDates(text,opts={}){
     const warnings=[],found=[],moneyLines=[],digits=s=>String(s).replace(/[Oo]/g,'0').replace(/[Il|]/g,'1');
     const months={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
@@ -168,45 +187,60 @@
   const TOTAL=/grand\s*total|\btotal\b|\btot\s*al\b|amount\s*(?:due|paid|payable)|b\s?a\s?l\s?a\s?n\s?c\s?e\s*(?:due|to\s*pay)?\b|to\s*pay\b|a?m[o0]unt\s*[:;]|^\s*amount\b|价税合计|实付|应付|合计|总\s*金\s*额|总\s*计|总\s*额/i;
   const PAYMENT=/pay[a-z]{2,4}t\b|\b(?:card|visa|master\s*card|mastercard|amex|american\s*express|maestro|debit|credit|contactless|apple\s*pay|google\s*pay|chip|payment|paid|charged|auth(?:orised|orized)?|sale|received|purchase)\b/i;
   const MONEY=/(?<![\d.])([£€¥￥$¢]\s*)?((?:\d{1,3}(?:,\d{3})+|\d{1,6})\s?\.\s?\d{2}|\d{1,6},\d{2})(?![\d])/g;
-  function moneyValues(line){
-    const out=[];let m;MONEY.lastIndex=0;
-    while((m=MONEY.exec(line))){
-      if(/[-−]\s*[£€¥￥$¢]?\s*$/.test(line.slice(0,m.index)))continue;
-      let v=m[2].replace(/\s/g,'');v=/,\d{2}$/.test(v)&&!v.includes('.')?v.replace(',','.'):v.replace(/,/g,'');
-      try{minor(v);out.push({value:v,symbol:!!m[1]});}catch(_){}
+  // Euro mode also reads continental amounts: 1.234,56 and 1 234,56. Labels below are the
+  // words used for totals, payments and tax on euro receipts; they stay off in pound mode.
+  const MONEY_EUR=/(?<![\d.])([£€¥￥$¢]\s*)?(\d{1,3}(?:[. ]\d{3})+,\d{2}|(?:\d{1,3}(?:,\d{3})+|\d{1,6})\s?\.\s?\d{2}|\d{1,6},\d{2})(?![\d])/g;
+  const TOTAL_EU=/(?<!\p{L})(?:summe|endsumme|gesamt(?:betrag|summe)?|zu\s*zahlen|zahlbetrag|rechnungsbetrag|betrag|montant(?:\s*(?:total|ttc|d[uû]))?|total\s*ttc|(?:net\s*)?[àa]\s*payer|totale(?:\s*(?:euro|eur|complessivo|documento))?|importo(?:\s*(?:pagato|totale))?|totaal(?:bedrag)?|te\s*betalen|bedrag|importe(?:\s*total)?|a\s*pagar)(?!\p{L})/iu;
+  const TOTAL_STRONG_EU=/zu\s*zahlen|gesamtbetrag|endsumme|total\s*ttc|[àa]\s*payer|importo\s*pagato|te\s*betalen|a\s*pagar/i;
+  const SUBTOTAL_EU=/zwischensumme|sous-?\s*total|subtotale|subtotaal/i;
+  const NEGATIVE_EU=/zwischensumme|sous-?\s*total|subtotale|subtotaal|(?<!\p{L})(?:mwst|ust|mehrwertsteuer|steuer|netto|tva|ht|iva|imponibile|btw|r[üu]ckgeld|monnaie(?:\s*rendue)?|rendu|resto|cambio|wisselgeld|gegeben|esp[eè]ces|bar|contanti|efectivo|contant|rabatt|remise|sconto|korting|descuento|pfand|trinkgeld|pourboire|mancia|fooi|propina)(?!\p{L})/iu;
+  const PAYMENT_EU=/(?<!\p{L})(?:karte|kartenzahlung|ec-?karte|girocard|bezahlt|carte(?:\s*bancaire)?|cb|pay[ée]|carta(?:\s*di\s*credito)?|pagato|pagamento|pin|pinnen|betaald|tarjeta|pagado)(?!\p{L})/iu;
+  function moneyValues(line,currency){
+    const out=[],pattern=currency==='EUR'?MONEY_EUR:MONEY;let m;pattern.lastIndex=0;
+    while((m=pattern.exec(line))){
+      const before=line.slice(0,m.index),after=line.slice(m.index+m[0].length),sign=(m[1]||'').trim();
+      if(/[-−]\s*[£€¥￥$¢]?\s*$/.test(before))continue;
+      let v=m[2].replace(/\s/g,'');v=/,\d{2}$/.test(v)?v.replace(/\./g,'').replace(',','.'):v.replace(/,/g,'');
+      const unit=sign==='£'||/\bGBP\s*$/i.test(before)||/^\s*(?:£|GBP\b)/i.test(after)?'GBP':sign==='€'||/\bEUR\s*$/i.test(before)||/^\s*(?:€|EUR\b|EUROS?\b)/i.test(after)?'EUR':'';
+      try{minor(v);out.push({value:v,symbol:!!m[1],unit});}catch(_){}
     }
     return out;
   }
-  function amountCandidates(lines,moneyLines,warnings){
-    const pool=new Map(),subtotals=[],savings=[],tenders=[],totals=[];
+  function amountCandidates(lines,moneyLines,warnings,currency='GBP'){
+    const pool=new Map(),subtotals=[],savings=[],tenders=[],totals=[],euro=currency==='EUR',other=euro?'GBP':'EUR';
+    // The chosen currency wins: a receipt quoting both shows only the chosen figures.
+    const units=new Set();lines.forEach((line,i)=>moneyValues(moneyLines[i]||line,currency).forEach(v=>{if(v.unit)units.add(v.unit);}));
+    const hasOwn=units.has(currency),pick=vals=>hasOwn?vals.filter(v=>v.unit!==other):vals;
     const add=(value,base,kind,source,repaired)=>{const k=minor(value);const c=pool.get(k)||{value:money(k),score:-999,kinds:new Set(),hits:0,source,repaired:false};if(kind!=='other')c.strong=(c.strong||0)+1;
       if(base>c.score){c.score=base;c.source=source;c.repaired=!!repaired;}c.kinds.add(kind);c.hits++;pool.set(k,c);};
     let totalOrder=0;
     lines.forEach((line,i)=>{
       // OCR often reads "£1" as "£]" or "£|".
       let amountLine=(moneyLines[i]||line).replace(/([£€])\s*[\]|lI!]\s*(?=\d[.,]\s?\d{2})/g,'$11');
-      if(TOTAL.test(line)||PAYMENT.test(line))amountLine=amountLine.replace(/(?<![\w.])([£€¥￥$]?\s*[0-9OoIl|]{1,9}\s*[.,]\s*[0-9OoIl|]{2})(?![\w.])/g,token=>{
+      const totalWord=TOTAL.test(line)||euro&&TOTAL_EU.test(line),paymentWord=PAYMENT.test(line)||euro&&PAYMENT_EU.test(line);
+      if(totalWord||paymentWord)amountLine=amountLine.replace(/(?<![\w.])([£€¥￥$]?\s*[0-9OoIl|]{1,9}\s*[.,]\s*[0-9OoIl|]{2})(?![\w.])/g,token=>{
         if(!/\d/.test(token))return token;const fixed=token.replace(/[Oo]/g,'0').replace(/[Il|]/g,'1').replace(/\s*([.,])\s*/g,'$1');
         if(fixed!==token)warnings.push('总额中的疑似 OCR 字符或小数空格已修正，请对照原件核对');return fixed;});
-      let vals=moneyValues(amountLine);
+      let vals=pick(moneyValues(amountLine,currency));
       const header=HEADER.test(line)&&!/total\s*(?:to\s*pay|due|paid|amount)/i.test(line);
-      const negative=NEGATIVE.test(line.replace(/\b(?:card|visa|amex|debit|credit)\s+tendered/i,'card paid'))&&!/total\s*(?:incl|including)|价税合计/i.test(line)&&!/^\s*(?:total|amount)\s*(?:to\s*pay|due|paid)\b/i.test(line);
-      const isTotal=!header&&!negative&&TOTAL.test(line),isPayment=!header&&!negative&&!isTotal&&(PAYMENT.test(line)||/\d[.,]\s?\d{2}\s*GBP\b|\bGBP\s*\d/i.test(line)&&(/a?m[o0]unt|charge|paid|\bfee|tarif/i.test(line)||/^\W*(?:GBP)?\s*\d+[.,]\s?\d{2}\s*(?:GBP)?\W*$/i.test(line)))&&!/card\s*(?:number|no\b)|xxxx|\*{4}/i.test(line.replace(/\d[.,]\d{2}.*/,''));
+      const negative=(NEGATIVE.test(line.replace(/\b(?:card|visa|amex|debit|credit)\s+tendered/i,'card paid'))||euro&&NEGATIVE_EU.test(line))&&!/total\s*(?:incl|including)|价税合计/i.test(line)&&!(euro&&totalWord&&/inkl|incl|inclus|ttc|compres/i.test(line))&&!/^\s*(?:total|amount)\s*(?:to\s*pay|due|paid)\b/i.test(line);
+      const coded=euro?/\d[.,]\s?\d{2}\s*(?:EUR\b|€)|(?:\bEUR|€)\s*\d/i.test(line)&&(/a?m[o0]unt|charge|paid|\bfee|tarif/i.test(line)||/^\W*(?:EUR)?\s*\d[\d. ]*[.,]\s?\d{2}\s*(?:EUR|EURO)?\W*$/i.test(line)):/\d[.,]\s?\d{2}\s*GBP\b|\bGBP\s*\d/i.test(line)&&(/a?m[o0]unt|charge|paid|\bfee|tarif/i.test(line)||/^\W*(?:GBP)?\s*\d+[.,]\s?\d{2}\s*(?:GBP)?\W*$/i.test(line));
+      const isTotal=!header&&!negative&&totalWord,isPayment=!header&&!negative&&!isTotal&&(paymentWord||coded)&&!/card\s*(?:number|no\b)|xxxx|\*{4}/i.test(line.replace(/\d[.,]\d{2}.*/,''));
       // Split payments (cash + card, voucher + card) are collected to check against totals.
-      if(/\bcash\b|voucher|coupon|gift\s*card|现金|券|\bcard\b|visa|master|amex|american\s*express|debit|contactless/i.test(line)&&!/change|找零|tendered|card\s*(?:number|no\b)/i.test(line))moneyValues(amountLine).forEach(v=>tenders.push(minor(v.value)));
-      if(SUBTOTAL.test(line))vals.forEach(v=>subtotals.push(minor(v.value)));
-      if(/saving|discount|promotion|优惠|折扣/i.test(line)){const m=line.match(/-\s*[£€$]?\s*(\d+[.,]\d{2})/);if(m)savings.push(minor(m[1].replace(',','.')));}
+      if(/\bcash\b|voucher|coupon|gift\s*card|现金|券|\bcard\b|visa|master|amex|american\s*express|debit|contactless/i.test(line)&&!/change|找零|tendered|card\s*(?:number|no\b)/i.test(line))moneyValues(amountLine,currency).forEach(v=>tenders.push(minor(v.value)));
+      if(SUBTOTAL.test(line)||euro&&SUBTOTAL_EU.test(line))vals.forEach(v=>subtotals.push(minor(v.value)));
+      if(/saving|discount|promotion|优惠|折扣/i.test(line)||euro&&/rabatt|remise|sconto|korting|descuento/i.test(line)){const m=line.match(/-\s*[£€$]?\s*(\d+[.,]\d{2})/);if(m)savings.push(minor(m[1].replace(',','.')));}
       // A label alone on its line: take a bare amount from the next line only.
-      if(!vals.length&&(isTotal||isPayment)&&moneyLines[i+1]&&/^[^A-Za-z]*\d+[.,]\s?\d{2}[^A-Za-z]*$/.test(moneyLines[i+1]))vals=moneyValues(moneyLines[i+1]);
+      if(!vals.length&&(isTotal||isPayment)&&moneyLines[i+1]&&/^[^A-Za-z]*\d+[.,]\s?\d{2}[^A-Za-z]*$/.test(euro?moneyLines[i+1].replace(/\bEUR(?:O|OS)?\b/ig,''):moneyLines[i+1]))vals=pick(moneyValues(moneyLines[i+1],currency));
       // "Total Operator Charges" style lines are partial totals; a bare "Total £x" is the final one.
       const partial=/\btotal\s+(?!to\b|due\b|paid\b|amount\b|incl)[a-z]{3,}\s+(?:[a-z]+\s+)?(?:charges?|items?|fees?|cost)\b/i.test(line);
-      const base=isTotal?(partial?92:/grand\s*total|total\s*(?:to\s*pay|due|paid|amount)|amount\s*(?:due|paid)|balance\s*due|实付|价税合计|^\W*total\s*[:：]?\s*[£€$]?\s*\d/i.test(line)?110:100):isPayment?90:negative||header?-1:5;
+      const base=isTotal?(partial?92:/grand\s*total|total\s*(?:to\s*pay|due|paid|amount)|amount\s*(?:due|paid)|balance\s*due|实付|价税合计|^\W*total\s*[:：]?\s*[£€$]?\s*\d/i.test(line)||euro&&TOTAL_STRONG_EU.test(line)?110:100):isPayment?90:negative||header?-1:5;
       if(base<0)return;
       vals.forEach((v,j)=>{
         const kind=isTotal?'total':isPayment?'payment':'other',last=j===vals.length-1;
         add(v.value,base-(last?0:35)+(isTotal?Math.min(totalOrder,3)*4:0),kind,line.slice(0,120));
         // OCR often reads "£" as 8, 2, 6 or E: offer the value without that leading digit.
-        if((isTotal||isPayment)&&!v.symbol&&/^[25689]\d+\.\d{2}$/.test(v.value)&&minor(v.value)>=1000&&/[1-9]/.test(v.value.slice(1).split('.')[0]+v.value.slice(-2)))add(v.value.slice(1),base-45,kind,line.slice(0,120),true);
+        if((isTotal||isPayment)&&!v.symbol&&!(euro&&v.unit)&&/^[25689]\d+\.\d{2}$/.test(v.value)&&minor(v.value)>=1000&&/[1-9]/.test(v.value.slice(1).split('.')[0]+v.value.slice(-2)))add(v.value.slice(1),base-45,kind,line.slice(0,120),true);
       });
       if(isTotal&&vals.length){totalOrder++;totals.push(minor(vals[vals.length-1].value));}
     });
@@ -221,14 +255,15 @@
       if(c.kinds.has('total')&&tenders.some((a,i)=>tenders.some((b,j)=>j>i&&a!==k&&b!==k&&a+b===k))){c.score+=60;c.support=true;}
     }
     const ranked=[...pool.values()].filter(c=>c.score>0).sort((a,b)=>b.score-a.score||minor(b.value)-minor(a.value));
-    if(ranked.some(c=>c.repaired&&c===ranked[0]))warnings.push('总额前疑似把 £ 识别成数字，已给出修正候选，请核对原件');
+    if(ranked.some(c=>c.repaired&&c===ranked[0]))warnings.push('总额前疑似把 '+CURRENCY_SYMBOLS[currency]+' 识别成数字，已给出修正候选，请核对原件');
+    if(units.has(other)&&!hasOwn)warnings.push(euro?'票据上的金额标着 £，但这张发票按欧元记录；不做汇率换算，请核对':'票据上的金额标着 €，但这张发票按英镑记录；不做汇率换算，请核对');
     return ranked;
   }
   function parse(text,opts={}){
     // Some OCR engines glue the year to the time ("Jul202613:03", "20/07/202610:17AM").
     text=String(text||'').replace(/\r/g,'').replace(/((?:19|20)\d{2})(?=\d{1,2}:\d{2})/g,'$1 ');const dateResult=receiptDates(text,opts),dates=dateResult.dates,warnings=[...dateResult.warnings];
     const lines=text.split('\n').map(s=>s.trim()).filter(Boolean);
-    const ranked=amountCandidates(lines,dateResult.moneyLines,warnings),top=ranked[0],second=ranked[1];
+    const currency=normalizeCurrency(opts.currency),ranked=amountCandidates(lines,dateResult.moneyLines,warnings,currency),top=ranked[0],second=ranked[1];
     // Fill automatically only when the best value is a labelled total/payment and clearly ahead.
     // A lone total that disagrees with a lone card payment is ambiguous (one of them is misread).
     const uncorroborated=c=>c&&(c.strong||0)<=1&&!c.support;
@@ -239,39 +274,52 @@
     else if(!confident)warnings.push(top.score>=90?'出现多个合计金额，请点击候选或手动填写实际付款总额':'未找到明确的总额字段，请点击候选或手动填写');
     const merchants=merchantCandidates(lines),merchant=merchants.length&&merchants[0].score>=30?merchants[0].name:'';
     warnings.push(merchant?'商家名称为候选结果，请核对；所在地需手动填写':'未能可靠识别商家，请点击候选或手动填写');
-    return {date:dateResult.date,amount:confident?top.value:'',merchant,dates,dateCandidates:dateResult.dateCandidates,amounts,merchants:merchants.slice(0,4).map(m=>m.name),warnings:[...new Set(warnings)]};
+    return {currency,date:dateResult.date,amount:confident?top.value:'',merchant,dates,dateCandidates:dateResult.dateCandidates,amounts,merchants:merchants.slice(0,4).map(m=>m.name),warnings:[...new Set(warnings)]};
   }
   function filter(rows,{from='',to='',category='all',search=''}={}){
     const q=search.trim().toLowerCase();return rows.filter(r=>!r.deletedAt&&(!from||r.date>=from)&&(!to||r.date<=to)&&(category==='all'||r.category===category)&&(!q||`${r.merchant} ${r.location||''} ${r.note||''}`.toLowerCase().includes(q))).sort((a,b)=>a.date.localeCompare(b.date)||a.id.localeCompare(b.id));
   }
-  function totals(rows){const out={};rows.forEach(r=>{out[r.currency]=(out[r.currency]||0)+Number(r.amountMinor);});return out;}
+  function totals(rows){const out={};rows.forEach(r=>{const c=currencyOf(r);out[c]=(out[c]||0)+Number(r.amountMinor);});return out;}
+  // City transport is a pounds-only monthly allowance (user-confirmed).
+  // Meals on a trip follow the country of the trip: the UK stays at £50 a day (user-confirmed);
+  // the others are the daily meal allowances (餐补/人天) of the Europe region in the Hanshow
+  // travel standard (财务报销流程指南, slide 差旅报销申请-5), all quoted in euros.
   const MEAL_DAILY_LIMIT_MINOR=5000;
+  const TRIP_COUNTRIES=[['GB','英国','United Kingdom','GBP',5000],['NL','荷兰','Netherlands','EUR',5000],['BE','比利时','Belgium','EUR',5000],['LU','卢森堡','Luxembourg','EUR',5000],['DE','德国','Germany','EUR',5000],['FR','法国','France','EUR',5000],['CH','瑞士','Switzerland','EUR',6000],['PL','波兰','Poland','EUR',4000],['IT','意大利','Italy','EUR',4000],['AT','奥地利','Austria','EUR',5000],['GR','希腊','Greece','EUR',4000],['ES','西班牙','Spain','EUR',4000],['IE','爱尔兰','Ireland','EUR',5000],['PT','葡萄牙','Portugal','EUR',4000],['FI','芬兰','Finland','EUR',6000],['CZ','捷克','Czech Republic','EUR',4000],['SK','斯洛伐克','Slovakia','EUR',4000],['HU','匈牙利','Hungary','EUR',4000],['SE','瑞典','Sweden','EUR',6000],['DK','丹麦','Denmark','EUR',6000],['NO','挪威','Norway','EUR',6000],['IS','冰岛','Iceland','EUR',6000],['RS','塞尔维亚','Serbia','EUR',4000],['RO','罗马尼亚','Romania','EUR',4000],['BG','保加利亚','Bulgaria','EUR',4000],['RU','俄罗斯','Russia','EUR',4000],['ZA','南非','South Africa','EUR',4000],['HR','克罗地亚等其他东欧国家','Croatia and other Eastern European countries','EUR',4000],['IL','以色列等中东国家','Israel and other Middle Eastern countries','EUR',5000]].map(([code,zh,en,currency,dailyMinor])=>({code,zh,en,currency,dailyMinor}));
+  // Business days without a country (older data, or a day marked before countries existed) are UK days.
+  function tripCountry(code){return TRIP_COUNTRIES.find(c=>c.code===code)||TRIP_COUNTRIES[0];}
+  function countryLabel(code,lang){const c=tripCountry(code);return lang==='en'?c.en:c.zh;}
   const CITY_MONTHLY_LIMIT_MINOR=15000;
   function monthlyTransportBudgets(rows){
     const months=new Map();
     for(const r of rows||[]){
       const confirmed=r.confirmed===true||(r.confirmed===undefined&&Array.isArray(r.documents));
-      if(r.deletedAt||!confirmed||r.category!==CATEGORIES[0]||!validDate(r.date)||!Number.isSafeInteger(r.amountMinor)||r.amountMinor<=0)continue;
+      if(r.deletedAt||!confirmed||currencyOf(r)!=='GBP'||r.category!==CATEGORIES[0]||!validDate(r.date)||!Number.isSafeInteger(r.amountMinor)||r.amountMinor<=0)continue;
       const month=r.date.slice(0,7),t=months.get(month)||{month,totalMinor:0,receiptIds:[]};
       t.totalMinor+=r.amountMinor;t.receiptIds.push(r.id);months.set(month,t);
     }
     return [...months.values()].sort((a,b)=>a.month.localeCompare(b.month)).map(t=>({...t,limitMinor:CITY_MONTHLY_LIMIT_MINOR,remainingMinor:Math.max(0,CITY_MONTHLY_LIMIT_MINOR-t.totalMinor),overMinor:Math.max(0,t.totalMinor-CITY_MONTHLY_LIMIT_MINOR)}));
   }
-  function tripBudgets(rows,days){
+  // A trip is a run of adjacent business days in the same country; changing country starts a new trip.
+  // Only meal receipts in the trip's currency count; others are listed in otherCurrencyIds, never converted.
+  function tripBudgets(rows,days,countries){
     const dates=Object.keys(days||{}).filter(d=>days[d]==='business'&&validDate(d)).sort(),trips=[];
     for(const date of dates){
-      const last=trips.at(-1);
-      if(last&&Date.parse(date+'T00:00:00Z')-Date.parse(last.to+'T00:00:00Z')===86400000){last.to=date;last.days++;}
-      else trips.push({from:date,to:date,days:1,totalMinor:0,receiptIds:[]});
+      const last=trips.at(-1),country=tripCountry(countries&&countries[date]);
+      if(last&&last.country===country.code&&Date.parse(date+'T00:00:00Z')-Date.parse(last.to+'T00:00:00Z')===86400000){last.to=date;last.days++;}
+      else trips.push({from:date,to:date,days:1,country:country.code,currency:country.currency,dailyMinor:country.dailyMinor,totalMinor:0,receiptIds:[],otherCurrencyIds:[]});
     }
     for(const r of rows||[]){
       const confirmed=r.confirmed===true||(r.confirmed===undefined&&Array.isArray(r.documents));
       if(r.deletedAt||!confirmed||r.category!==CATEGORIES[2]||!validDate(r.date)||!Number.isSafeInteger(r.amountMinor)||r.amountMinor<=0)continue;
       const trip=trips.find(t=>r.date>=t.from&&r.date<=t.to);
-      if(trip){trip.totalMinor+=r.amountMinor;trip.receiptIds.push(r.id);}
+      if(trip&&currencyOf(r)===trip.currency){trip.totalMinor+=r.amountMinor;trip.receiptIds.push(r.id);}
+      else if(trip)trip.otherCurrencyIds.push(r.id);
     }
-    return trips.map(t=>({...t,limitMinor:t.days*MEAL_DAILY_LIMIT_MINOR,remainingMinor:Math.max(0,t.days*MEAL_DAILY_LIMIT_MINOR-t.totalMinor),overMinor:Math.max(0,t.totalMinor-t.days*MEAL_DAILY_LIMIT_MINOR)}));
+    return trips.map(t=>{const limitMinor=t.days*t.dailyMinor;return {...t,limitMinor,remainingMinor:Math.max(0,limitMinor-t.totalMinor),overMinor:Math.max(0,t.totalMinor-limitMinor)};});
   }
+  // The currency a receipt on this date should use when it falls on a marked trip day, or '' if none.
+  function tripCurrencyOn(date,days,countries){return days&&days[date]==='business'?tripCountry(countries&&countries[date]).currency:'';}
   function receiptDuplicates(draft,rows){
     const hashes=new Set();let repeatedAttachments=0;
     const documents=Array.isArray(draft.documents)?draft.documents:[];
@@ -283,27 +331,29 @@
     for(const r of rows||[]){
       if(draft.id&&r.id===draft.id)continue;
       const other=Array.isArray(r.documents)?r.documents:[],sameFile=other.some(d=>hashes.has(d.sha256))||(r.sha256&&hashes.has(r.sha256));
-      const sameFields=validDate(draft.date)&&draft.date===r.date&&Number.isSafeInteger(amountMinor)&&amountMinor>0&&amountMinor===r.amountMinor&&merchant&&merchant===normalize(r.merchant);
+      const sameFields=validDate(draft.date)&&draft.date===r.date&&currencyOf(draft)===currencyOf(r)&&Number.isSafeInteger(amountMinor)&&amountMinor>0&&amountMinor===r.amountMinor&&merchant&&merchant===normalize(r.merchant);
       if(sameFile||sameFields)matches.push({id:r.id,date:r.date,merchant:r.merchant,category:r.category,amountMinor:r.amountMinor,kind:sameFile?'file':'fields'});
     }
     return {matches,repeatedAttachments};
   }
   // Home-screen summary: which period and category the headline total covers.
   const SUMMARY_PERIODS=[['thisMonth','本月'],['lastMonth','上月'],['calendarMonth','日历所选月份'],['thisYear','今年'],['all','全部时间']];
-  function summaryRange(period,today,viewMonth){
+  function summaryRange(period,today,viewMonth,lang){
     const pad=n=>String(n).padStart(2,'0'),end=(y,m)=>`${y}-${pad(m)}-${pad(new Date(Date.UTC(y,m,0)).getUTCDate())}`;
     const t=validDate(today)?today:new Date().toISOString().slice(0,10),y=Number(t.slice(0,4)),m=Number(t.slice(5,7));
-    if(period==='lastMonth'){const ly=m===1?y-1:y,lm=m===1?12:m-1;return {period,from:`${ly}-${pad(lm)}-01`,to:end(ly,lm),label:`上月（${ly}年${lm}月）`};}
-    if(period==='calendarMonth'&&/^\d{4}-\d{2}$/.test(viewMonth||'')){const vy=Number(viewMonth.slice(0,4)),vm=Number(viewMonth.slice(5));return {period,from:viewMonth+'-01',to:end(vy,vm),label:`${vy}年${vm}月（日历所选）`};}
-    if(period==='thisYear')return {period,from:`${y}-01-01`,to:`${y}-12-31`,label:`今年（${y}年）`};
-    if(period==='all')return {period,from:'',to:'',label:'全部时间'};
-    return {period:'thisMonth',from:`${y}-${pad(m)}-01`,to:end(y,m),label:`本月（${y}年${m}月）`};
+    const en=lang==='en',monthEn=(yy,mm)=>MONTHS_EN[mm-1]+' '+yy;
+    if(period==='lastMonth'){const ly=m===1?y-1:y,lm=m===1?12:m-1;return {period,from:`${ly}-${pad(lm)}-01`,to:end(ly,lm),label:en?`Last month (${monthEn(ly,lm)})`:`上月（${ly}年${lm}月）`};}
+    if(period==='calendarMonth'&&/^\d{4}-\d{2}$/.test(viewMonth||'')){const vy=Number(viewMonth.slice(0,4)),vm=Number(viewMonth.slice(5));return {period,from:viewMonth+'-01',to:end(vy,vm),label:en?`${monthEn(vy,vm)} (from calendar)`:`${vy}年${vm}月（日历所选）`};}
+    if(period==='thisYear')return {period,from:`${y}-01-01`,to:`${y}-12-31`,label:en?`This year (${y})`:`今年（${y}年）`};
+    if(period==='all')return {period,from:'',to:'',label:en?'All time':'全部时间'};
+    return {period:'thisMonth',from:`${y}-${pad(m)}-01`,to:end(y,m),label:en?`This month (${monthEn(y,m)})`:`本月（${y}年${m}月）`};
   }
-  function summarize(rows,{period='thisMonth',category='all',today='',viewMonth=''}={}){
-    const r=summaryRange(period,today,viewMonth),cat=category==='all'||CATEGORIES.includes(category)?category:'all';
+  function summarize(rows,{period='thisMonth',category='all',today='',viewMonth='',lang='',currency='GBP'}={}){
+    const r=summaryRange(period,today,viewMonth,lang),cat=category==='all'||CATEGORIES.includes(category)?category:'all';
     const list=(rows||[]).filter(x=>!x.deletedAt&&validDate(x.date||'')&&(!r.from||x.date>=r.from)&&(!r.to||x.date<=r.to)&&(cat==='all'||x.category===cat)&&Number.isSafeInteger(x.amountMinor)&&x.amountMinor>0);
-    return {...r,category:cat,categoryLabel:cat==='all'?'全部类别':cat,count:list.length,totalMinor:list.reduce((n,x)=>n+x.amountMinor,0)};
+    const byCurrency=totals(list);
+    return {...r,category:cat,categoryLabel:cat==='all'?(lang==='en'?'All categories':'全部类别'):categoryLabel(cat,lang),count:list.length,totals:byCurrency,totalMinor:byCurrency[normalizeCurrency(currency)]||0};
   }
-  const api={SUMMARY_PERIODS,summaryRange,summarize,CATEGORIES,MEAL_MERCHANTS,MEAL_DAILY_LIMIT_MINOR,CITY_MONTHLY_LIMIT_MINOR,monthlyTransportBudgets,tripBudgets,receiptDuplicates,exportNames,iso,validDate,minor,money,parse,filter,totals};
+  const api={TRIP_COUNTRIES,tripCountry,countryLabel,tripCurrencyOn,CURRENCIES,CURRENCY_SYMBOLS,CATEGORY_EN,MONTHS_EN,normalizeCurrency,currencyOf,categoryLabel,merchantLabel,formatMoney,formatTotals,SUMMARY_PERIODS,summaryRange,summarize,CATEGORIES,MEAL_MERCHANTS,MEAL_DAILY_LIMIT_MINOR,CITY_MONTHLY_LIMIT_MINOR,monthlyTransportBudgets,tripBudgets,receiptDuplicates,exportNames,iso,validDate,minor,money,parse,filter,totals};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ReceiptParser=api;
 })(typeof window!=='undefined'?window:globalThis);

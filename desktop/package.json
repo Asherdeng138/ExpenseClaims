@@ -1,6 +1,6 @@
 {
   "name": "baozhang-desktop",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "随手报账电脑端",
   "author": "Asher Deng",
   "license": "UNLICENSED",
@@ -11,9 +11,10 @@
     "build": "node tools/build.cjs",
     "start": "electron .",
     "test": "node --test tests/service.test.cjs",
-    "test:ui": "node tests/ui.test.cjs",
+    "test:ui": "node tests/ui.test.cjs && node tests/settings-ui.test.cjs && node tests/trips-ui.test.cjs",
+    "test:settings": "node tests/settings-electron.test.cjs",
     "smoke": "node tests/smoke.cjs",
-    "dist": "electron-builder --win portable zip --x64"
+    "dist": "electron-builder --win nsis zip --x64"
   },
   "dependencies": {
     "tesseract.js": "6.0.1",
@@ -44,6 +45,7 @@
       "ocr-worker.cjs",
       "receipt-ocr.js",
       "parser.cjs",
+      "i18n.cjs",
       "ui/**",
       "vendor/**",
       "models/**",
@@ -52,16 +54,22 @@
     ],
     "win": {
       "target": [
-        "portable",
+        "nsis",
         "zip"
       ],
       "artifactName": "BaoZhang-Desktop-${version}.${ext}",
       "signAndEditExecutable": true,
       "icon": "build/icon.ico"
     },
-    "portable": {
-      "artifactName": "BaoZhang-Desktop-${version}.exe",
-      "unpackDirName": true
+    "nsis": {
+      "artifactName": "BaoZhang-Desktop-Setup-${version}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false
     }
   }
 }

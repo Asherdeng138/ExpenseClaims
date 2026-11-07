@@ -29,18 +29,22 @@ jobs:
         run: npm run smoke
         env:
           BAOZHANG_PACKAGED: '1'
-      - name: Hash package
+      - name: Hash packages
         shell: pwsh
         run: |
+          # Unsigned build (no Authenticode certificate): publish SHA-256 for both the installer and the ZIP.
           $version = (Get-Content package.json | ConvertFrom-Json).version
-          $exe = Get-Item "release/BaoZhang-Desktop-$version.exe"
-          (Get-FileHash $exe.FullName -Algorithm SHA256).Hash | Set-Content "$($exe.FullName).sha256"
+          $files = @("release/BaoZhang-Desktop-Setup-$version.exe", "release/BaoZhang-Desktop-$version.zip")
+          $lines = foreach ($f in $files) { $i = Get-Item $f; '{0}  {1}' -f (Get-FileHash $i.FullName -Algorithm SHA256).Hash.ToLower(), $i.Name }
+          $lines | Set-Content "release/SHA256SUMS-desktop-$version.txt" -Encoding Ascii
+          $lines
       - uses: actions/upload-artifact@v4
         with:
           name: BaoZhang-Windows
           path: |
-            desktop/release/BaoZhang-Desktop-*.exe
-            desktop/release/BaoZhang-Desktop-*.exe.sha256
+            desktop/release/BaoZhang-Desktop-Setup-*.exe
+            desktop/release/BaoZhang-Desktop-*.zip
+            desktop/release/SHA256SUMS-desktop-*.txt
             desktop/verification/
           retention-days: 90
       - uses: actions/upload-artifact@v4
