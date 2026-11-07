@@ -29,7 +29,7 @@ jobs:
       - name: Install SDK
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - name: Test receipt parsing
-        run: node --test tests/parser.test.cjs tests/android-migration.test.cjs
+        run: node --test tests/parser.test.cjs tests/parser-sync.test.cjs tests/i18n.test.cjs tests/android-migration.test.cjs
       - name: Prepare signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}

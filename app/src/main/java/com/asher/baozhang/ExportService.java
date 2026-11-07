@@ -13,13 +13,13 @@ import java.util.zip.*;
 final class ExportService {
     final Documents docs;final File directory;
     ExportService(Documents d,File cache){docs=d;directory=new File(cache,"exports");directory.mkdirs();}
-    File[] export(List<JSONObject> receipts,String category,String from,String to) throws Exception {
+    File[] export(List<JSONObject> receipts,String category,String from,String to,String language) throws Exception {
         if(receipts.isEmpty())throw new IOException("没有选中的发票");
-        String base=ExportNames.base(category,from,to);
+        String base=ExportNames.base(category,from,to,language);
         int count=0;for(JSONObject r:receipts){JSONArray a=r.getJSONArray("documents");for(int i=0;i<a.length();i++)count+=a.getJSONObject(i).getInt("pages");}
         if(count>200)throw new IOException("一次最多导出200页，请缩短日期范围");
         File folder=new File(directory,UUID.randomUUID().toString());if(!folder.mkdirs())throw new IOException("无法创建导出目录");
-        File pdfFile=new File(folder,base+"_发票合集.pdf"),xlsxFile=new File(folder,base+"_明细汇总.xlsx");
+        File pdfFile=new File(folder,ExportNames.pdf(base,language)),xlsxFile=new File(folder,ExportNames.xlsx(base,language));
         List<XlsxWriter.Row> rows=new ArrayList<>();int page=1;
         PdfDocument output=new PdfDocument();
         try{
@@ -32,10 +32,10 @@ final class ExportService {
                         }
                     }else{CropSpec crop=Documents.crop(d);Bitmap b=Documents.image(f,crop==null?2400:3600);if(b==null)throw new IOException("无法解码发票图片");b=Documents.applyCrop(b,crop);try{addPage(output,b,page++);}finally{b.recycle();}}
                 }
-                rows.add(new XlsxWriter.Row(r.getString("id"),r.getString("date"),r.getString("category"),"GBP",r.getString("merchant"),r.optString("location"),r.optString("note"),r.getLong("amountMinor"),attachments.length(),first==page-1?String.valueOf(first):first+"–"+(page-1)));
+                rows.add(new XlsxWriter.Row(r.getString("id"),r.getString("date"),r.getString("category"),r.optString("currency","GBP"),r.getString("merchant"),r.optString("location"),r.optString("note"),r.getLong("amountMinor"),attachments.length(),first==page-1?String.valueOf(first):first+"–"+(page-1)));
             }
             try(OutputStream out=new FileOutputStream(pdfFile)){output.writeTo(out);}
-            XlsxWriter.write(xlsxFile,rows);return new File[]{pdfFile,xlsxFile};
+            XlsxWriter.write(xlsxFile,rows,language);return new File[]{pdfFile,xlsxFile};
         }catch(Exception e){pdfFile.delete();xlsxFile.delete();folder.delete();throw e;}
         finally{output.close();}
     }
@@ -47,10 +47,10 @@ final class ExportService {
         try{Canvas canvas=page.getCanvas();canvas.drawColor(Color.WHITE);Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);canvas.drawBitmap(b,null,new RectF(0,0,width,height),paint);}
         finally{out.finishPage(page);}
     }
-    File backup(JSONArray receipts,JSONObject days) throws Exception {
-        File f=new File(directory,"报账备份_"+System.currentTimeMillis()+".zip");Set<String> names=new HashSet<>();
+    File backup(JSONArray receipts,JSONObject days,JSONObject countries,String language) throws Exception {
+        File f=new File(directory,("en".equals(language)?"BaoZhang_Backup_":"报账备份_")+System.currentTimeMillis()+".zip");Set<String> names=new HashSet<>();
         try(ZipOutputStream z=new ZipOutputStream(new FileOutputStream(f))){
-            z.putNextEntry(new ZipEntry("receipts.json"));z.write(new JSONObject().put("schemaVersion",1).put("receipts",receipts).put("days",days).toString(2).getBytes(java.nio.charset.StandardCharsets.UTF_8));z.closeEntry();
+            z.putNextEntry(new ZipEntry("receipts.json"));z.write(new JSONObject().put("schemaVersion",1).put("receipts",receipts).put("days",days).put("countries",countries).toString(2).getBytes(java.nio.charset.StandardCharsets.UTF_8));z.closeEntry();
             for(int j=0;j<receipts.length();j++){JSONArray a=receipts.getJSONObject(j).getJSONArray("documents");for(int i=0;i<a.length();i++){
                 String name=a.getJSONObject(i).getString("name");if(!names.add(name))continue;z.putNextEntry(new ZipEntry("documents/"+name));try(InputStream in=new FileInputStream(docs.file(name))){byte[] b=new byte[65536];int n;while((n=in.read(b))!=-1)z.write(b,0,n);}z.closeEntry();
             }}return f;

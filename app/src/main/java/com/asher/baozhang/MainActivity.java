@@ -60,9 +60,9 @@ public class MainActivity extends Activity {
             @Override public boolean onJsConfirm(WebView view,String url,String message,JsResult result){
                 if(isFinishing()||isDestroyed()){result.cancel();return true;}
                 new AlertDialog.Builder(MainActivity.this)
-                        .setTitle("请确认").setMessage(message)
-                        .setPositiveButton("确认",(dialog,which)->result.confirm())
-                        .setNegativeButton("取消",(dialog,which)->result.cancel())
+                        .setTitle(text("请确认","Please confirm")).setMessage(message)
+                        .setPositiveButton(text("确认","Confirm"),(dialog,which)->result.confirm())
+                        .setNegativeButton(text("取消","Cancel"),(dialog,which)->result.cancel())
                         .setOnCancelListener(dialog->result.cancel())
                         .show();
                 return true;
@@ -105,7 +105,7 @@ public class MainActivity extends Activity {
     private void failure(Exception e){try{emit("error",new JSONObject().put("message",e.getMessage()==null?"操作失败，请重试":e.getMessage()).put("draft",draft==null?JSONObject.NULL:draft));}catch(JSONException ignored){}}
     private void submit(Checked action){worker.submit(()->{try{action.run();}catch(Exception e){failure(e);}catch(OutOfMemoryError e){failure(new IOException("图片或导出批次过大，请缩小图片或分批导出"));}});}
     private interface Checked {void run() throws Exception;}
-    private void data() throws Exception {emit("data",new JSONObject().put("receipts",store.list()).put("days",store.days()).put("draft",draft==null?JSONObject.NULL:draft));}
+    private void data() throws Exception {emit("data",new JSONObject().put("receipts",store.list()).put("days",store.days()).put("countries",store.countries()).put("draft",draft==null?JSONObject.NULL:draft));}
     private boolean purgeExpired() throws Exception {
         JSONArray all=store.list();long now=System.currentTimeMillis();Set<String> expired=new HashSet<>();
         for(int i=0;i<all.length();i++){JSONObject r=all.getJSONObject(i);if(r.optLong("deletedAt")>0&&now-r.getLong("deletedAt")>=ReceiptStore.RETENTION_MS)expired.add(r.getString("id"));}
@@ -128,6 +128,10 @@ public class MainActivity extends Activity {
         else {if(draft!=null)throw new IOException("请先保存或放弃当前草稿");draft=blankDraft(category);}
         persistDraft();
     }
+    private String language(){return "en".equals(getPreferences(0).getString("language","zh"))?"en":"zh";}
+    private String currency(){return "EUR".equals(getPreferences(0).getString("currency","GBP"))?"EUR":"GBP";}
+    private String text(String zh,String en){return "en".equals(language())?en:zh;}
+    private JSONObject settings() throws JSONException {return new JSONObject().put("language",language()).put("currency",currency());}
     private void setCaptureName(String name){captureName=name;getPreferences(0).edit().putString("captureName",name).apply();}
     private void launchCamera(){
         try{File f=docs.captureFile();setCaptureName(f.getName());Uri uri=FileProvider.getUriForFile(this,getPackageName()+".files",f);Intent i=new Intent(MediaStore.ACTION_IMAGE_CAPTURE);i.putExtra(MediaStore.EXTRA_OUTPUT,uri);i.setClipData(ClipData.newRawUri("invoice",uri));i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);startActivityForResult(i,CAMERA);}catch(Exception e){if(!captureName.isEmpty())docs.remove(captureName);setCaptureName("");failure(new IOException("无法启动相机，请使用导入图片"));}
@@ -146,7 +150,7 @@ public class MainActivity extends Activity {
         boolean first=a.length()==1;draft.put("ocr",draft.optString("ocr")+(first?"":"\n")+text);draft.remove("needsScan");if(!message.isEmpty())draft.put("scanMessage",message);persistDraft();
         emit("scan",new JSONObject().put("draft",draft).put("text",text).put("first",first).put("duplicate",duplicate).put("message",message));
     }
-    private JSONObject blankDraft(String category) throws Exception {return new JSONObject().put("category",category).put("pendingId",UUID.randomUUID().toString()).put("documents",new JSONArray()).put("ocr","").put("date","").put("amount","").put("merchant","").put("location","").put("note","");}
+    private JSONObject blankDraft(String category) throws Exception {return new JSONObject().put("category",category).put("currency",currency()).put("pendingId",UUID.randomUUID().toString()).put("documents",new JSONArray()).put("ocr","").put("date","").put("amount","").put("merchant","").put("location","").put("note","");}
     private void importSelection(List<Uri> uris,boolean append) throws Exception {
         if(uris.size()>30){if(!append){draft=null;persistDraft();}throw new IOException("每批最多选择 30 个文件，请分批导入");}
         if(append){for(Uri uri:uris)attach(docs.importUri(uri));return;}
@@ -178,14 +182,14 @@ public class MainActivity extends Activity {
     }
     private void keepFields(JSONObject fields) throws Exception {
         if(draft==null)throw new IOException("没有草稿");
-        for(String key:new String[]{"date","amount","merchant","location","category","note"})if(fields.has(key))draft.put(key,fields.getString(key));
+        for(String key:new String[]{"date","amount","merchant","location","category","currency","note"})if(fields.has(key))draft.put(key,fields.getString(key));
         // Text from the on-device smart scan replaces the earlier OCR text of this draft.
         if(fields.has("ocr")){String text=fields.getString("ocr");draft.put("ocr",text.length()>100000?text.substring(0,100000):text);}
         persistDraft();
     }
     private boolean referenced(String name) throws Exception {JSONArray all=store.list();for(int i=0;i<all.length();i++){JSONArray a=all.getJSONObject(i).getJSONArray("documents");for(int j=0;j<a.length();j++)if(name.equals(a.getJSONObject(j).getString("name")))return true;}return false;}
     private void discard() throws Exception {if(draft!=null){JSONArray a=draft.getJSONArray("documents");for(int i=0;i<a.length();i++){String n=a.getJSONObject(i).getString("name");if(!referenced(n))docs.remove(n);}}advanceBatch();}
-    private void share(File[] files){try{ArrayList<Uri> uris=new ArrayList<>();for(File f:files)uris.add(FileProvider.getUriForFile(this,getPackageName()+".files",f));Intent i=new Intent(Intent.ACTION_SEND_MULTIPLE);i.setType("*/*");i.putParcelableArrayListExtra(Intent.EXTRA_STREAM,uris);ClipData clip=ClipData.newRawUri("报账文件",uris.get(0));for(int j=1;j<uris.size();j++)clip.addItem(new ClipData.Item(uris.get(j)));i.setClipData(clip);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(Intent.createChooser(i,"分享报账文件"));}catch(Exception e){failure(new IOException("无法打开分享界面，请使用保存到文件夹"));}}
+    private void share(File[] files){try{ArrayList<Uri> uris=new ArrayList<>();for(File f:files)uris.add(FileProvider.getUriForFile(this,getPackageName()+".files",f));Intent i=new Intent(Intent.ACTION_SEND_MULTIPLE);i.setType("*/*");i.putParcelableArrayListExtra(Intent.EXTRA_STREAM,uris);ClipData clip=ClipData.newRawUri("报账文件",uris.get(0));for(int j=1;j<uris.size();j++)clip.addItem(new ClipData.Item(uris.get(j)));i.setClipData(clip);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(Intent.createChooser(i,text("分享报账文件","Share expense files")));}catch(Exception e){failure(new IOException("无法打开分享界面，请使用保存到文件夹"));}}
     private void saveToFolder(Uri tree) throws Exception {
         if(lastExport==null)throw new IOException("导出文件已经失效，请重新生成");
         Uri root=DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree));List<String> done=new ArrayList<>();
@@ -206,6 +210,12 @@ public class MainActivity extends Activity {
     @Override public void onBackPressed(){handleBack();}
     @Override protected void onDestroy(){super.onDestroy();maintenanceHandler.removeCallbacks(maintenance);worker.shutdown();if(web!=null){web.removeJavascriptInterface("Native");web.destroy();web=null;}}
     final class Bridge {
+        /** Read synchronously at page start so the first paint is already in the chosen language. */
+        @JavascriptInterface public String settings(){try{return MainActivity.this.settings().toString();}catch(JSONException e){return "{}";}}
+        @JavascriptInterface public void setSettings(String json){submit(()->{JSONObject s=new JSONObject(json);String language=s.getString("language"),currency=s.getString("currency");if(!Arrays.asList("zh","en").contains(language)||!ReceiptStore.CURRENCIES.contains(currency))throw new IOException("设置无效");getPreferences(0).edit().putString("language",language).putString("currency",currency).apply();
+            // A receipt still being drafted follows the new currency; saved receipts keep their own.
+            if(draft!=null&&!draft.has("id")){draft.put("currency",currency);persistDraft();}
+            emit("settings",new JSONObject().put("settings",MainActivity.this.settings()).put("draft",draft==null?JSONObject.NULL:draft));});}
         @JavascriptInterface public void ready(){submit(()->{try{purgeExpired();}catch(Exception e){emit("toast","回收站清理失败，稍后将重试");}data();resumeBatch();});}
         @JavascriptInterface public void capture(String category,boolean append){submit(()->{initDraft(category,append);runOnUiThread(()->launchCamera());});}
         @JavascriptInterface public void importFile(String category,boolean append){submit(()->{initDraft(category,append);draft.put("pickerAppend",append);persistDraft();runOnUiThread(()->launchImport());});}
@@ -227,12 +237,12 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void delete(String id){submit(()->{JSONObject r=store.get(id);if(draft!=null&&id.equals(draft.optString("id")))discard();store.delete(id);JSONArray a=r.getJSONArray("documents");for(int i=0;i<a.length();i++){String n=a.getJSONObject(i).getString("name");if(!referenced(n))docs.remove(n);}data();emit("toast","发票已删除");});}
         @JavascriptInterface public void archiveExport(){submit(()->{if(lastExportIds.isEmpty())throw new IOException("请先成功导出发票");store.archive(lastExportIds);lastExportIds.clear();data();emit("toast","本次导出的发票已归档");});}
         @JavascriptInterface public void lifecycle(String id,String action){submit(()->{if(draft!=null&&id.equals(draft.optString("id")))throw new IOException("请先保存或放弃这张发票的草稿");purgeExpired();store.lifecycle(id,action);data();emit("toast",action.equals("trash")?"已移入回收站，可在 30 天内恢复":action.equals("recover")?"已恢复到归档区":"已取消归档，发票仍保留");});}
-        @JavascriptInterface public void markDays(String from,String to,String type){submit(()->{store.markDays(from,to,type);data();emit("toast","日历状态已更新");});}
+        @JavascriptInterface public void markDays(String from,String to,String type,String country){submit(()->{store.markDays(from,to,type,country==null?"":country);data();emit("toast","日历状态已更新");});}
         @JavascriptInterface public void open(String receiptId,int index){submit(()->{JSONArray a=receiptId.equals("draft")?draft.getJSONArray("documents"):store.get(receiptId).getJSONArray("documents");JSONObject d=a.getJSONObject(index);emit("preview",d);});}
-        @JavascriptInterface public void export(String json){submit(()->{lastExportIds.clear();JSONObject q=new JSONObject(json);String category=q.getString("category"),from=q.getString("from"),to=q.getString("to");if(!ReceiptStore.CATEGORIES.contains(category)||!from.matches("\\d{4}-\\d{2}-\\d{2}")||!to.matches("\\d{4}-\\d{2}-\\d{2}")||java.time.LocalDate.parse(to).isBefore(java.time.LocalDate.parse(from)))throw new IOException("请选择费用种类和有效日期范围");java.time.LocalDate.parse(from);JSONArray ids=q.getJSONArray("ids");Set<String> selected=new HashSet<>();for(int i=0;i<ids.length();i++)selected.add(ids.getString(i));List<JSONObject> rows=new ArrayList<>();for(String id:selected){JSONObject r=store.get(id);if(r.optLong("deletedAt")>0||!r.getString("category").equals(category)||r.getString("date").compareTo(from)<0||r.getString("date").compareTo(to)>0)throw new IOException("选中发票与分类或日期范围不符");rows.add(r);}rows.sort(Comparator.comparing((JSONObject r)->r.optString("date")).thenComparing(r->r.optString("id")));lastExport=exports.export(rows,category,from,to);lastExportIds=new HashSet<>(selected);JSONArray names=new JSONArray();for(File f:lastExport)names.put(f.getName());emit("exported",names);});}
+        @JavascriptInterface public void export(String json){submit(()->{lastExportIds.clear();JSONObject q=new JSONObject(json);String category=q.getString("category"),from=q.getString("from"),to=q.getString("to");if(!ReceiptStore.CATEGORIES.contains(category)||!from.matches("\\d{4}-\\d{2}-\\d{2}")||!to.matches("\\d{4}-\\d{2}-\\d{2}")||java.time.LocalDate.parse(to).isBefore(java.time.LocalDate.parse(from)))throw new IOException("请选择费用种类和有效日期范围");java.time.LocalDate.parse(from);JSONArray ids=q.getJSONArray("ids");Set<String> selected=new HashSet<>();for(int i=0;i<ids.length();i++)selected.add(ids.getString(i));List<JSONObject> rows=new ArrayList<>();for(String id:selected){JSONObject r=store.get(id);if(r.optLong("deletedAt")>0||!r.getString("category").equals(category)||r.getString("date").compareTo(from)<0||r.getString("date").compareTo(to)>0)throw new IOException("选中发票与分类或日期范围不符");rows.add(r);}rows.sort(Comparator.comparing((JSONObject r)->r.optString("date")).thenComparing(r->r.optString("id")));lastExport=exports.export(rows,category,from,to,language());lastExportIds=new HashSet<>(selected);JSONArray names=new JSONArray();for(File f:lastExport)names.put(f.getName());emit("exported",names);});}
         @JavascriptInterface public void shareExport(){runOnUiThread(()->{if(lastExport==null)failure(new IOException("请先生成文件"));else share(lastExport);});}
         @JavascriptInterface public void saveExport(){runOnUiThread(()->{if(lastExport==null){failure(new IOException("请先生成文件"));return;}try{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);i.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivityForResult(i,FOLDER);}catch(Exception e){failure(new IOException("无法选择文件夹，请使用分享"));}});}
-        @JavascriptInterface public void backup(){submit(()->{lastExportIds.clear();purgeExpired();lastExport=new File[]{exports.backup(store.list(),store.days())};JSONArray names=new JSONArray();names.put(lastExport[0].getName());emit("exported",names);});}
+        @JavascriptInterface public void backup(){submit(()->{lastExportIds.clear();purgeExpired();lastExport=new File[]{exports.backup(store.list(),store.days(),store.countries(),language())};JSONArray names=new JSONArray();names.put(lastExport[0].getName());emit("exported",names);});}
         @JavascriptInterface public void quit(){runOnUiThread(()->finish());}
     }
 }

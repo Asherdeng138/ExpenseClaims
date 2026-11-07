@@ -17,10 +17,13 @@ if ($LASTEXITCODE -ne 0) { throw '尚未登录 GitHub。请先运行：gh auth l
 $av = (Select-String -Path 'app/build.gradle' -Pattern "versionName '([^']+)'").Matches[0].Groups[1].Value
 $dv = (Get-Content 'desktop/package.json' -Raw -Encoding UTF8 | ConvertFrom-Json).version
 $tag = "v$av-$dv"
-$files = @("output/BaoZhang-$av.apk", "desktop/release/BaoZhang-Desktop-$dv.exe", "desktop/release/BaoZhang-Desktop-$dv.zip")
+# Windows 发布安装版（NSIS）和完整 ZIP；不再发布便携版 EXE（每次启动静默解压约 600 MB 到临时目录，易被安全软件拦截或看似打不开）
+$files = @("output/BaoZhang-$av.apk", "desktop/release/BaoZhang-Desktop-Setup-$dv.exe", "desktop/release/BaoZhang-Desktop-$dv.zip")
 foreach ($f in $files) { if (-not (Test-Path $f)) { throw "缺少文件：$f（请先运行构建脚本）" } }
 $notes = "output/发布说明-$av-$dv.md"
 if (-not (Test-Path $notes)) { throw "缺少发布说明：$notes" }
+$noteCheck = Get-Content $notes -Raw -Encoding UTF8
+foreach ($need in @("BaoZhang-Desktop-Setup-$dv.exe", 'Get-FileHash')) { if (-not $noteCheck.Contains($need)) { throw "发布说明缺少 $need（请写明安装版文件名和 SHA-256 校验方法，可参考 docs/windows-download.md）" } }
 
 # 计算真实哈希，并要求发布说明里写的哈希与实际文件一致
 $sums = foreach ($f in $files) { '{0}  {1}' -f (Get-FileHash $f -Algorithm SHA256).Hash.ToLower(), (Split-Path $f -Leaf) }

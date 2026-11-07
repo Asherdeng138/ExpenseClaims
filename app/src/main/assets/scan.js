@@ -3,7 +3,7 @@
  * Smart scan for the Android WebView: automatic crop + PP-OCRv6 recognition on top of
  * the original ML Kit result. Everything runs on the phone; the original photo is never
  * changed (only crop corners are stored with the attachment).
- * Uses globals from app.js: S, P, $, esc, call, toast, showEditor, persistFields.
+ * Uses globals from app.js: S, P, $, esc, t, call, toast, showEditor, persistFields, draftCurrency.
  */
 const SmartScan=(()=>{
   let enginePromise=null,running=0;
@@ -55,7 +55,7 @@ const SmartScan=(()=>{
   function setStatus(text){const el=$('smartScanStatus');if(el){el.textContent=text||'';el.classList.toggle('hidden',!text);}}
   async function run(index=0,quad=null,rotate=null){
     const d=S.draft?.documents?.[index];if(!isImage(d))return;
-    const key=draftKey(),token=++running;S.smartScanning=true;setStatus('正在自动裁剪并精细识别（约 10–30 秒），可以先核对其他内容…');
+    const key=draftKey(),token=++running;S.smartScanning=true;setStatus(t('正在自动裁剪并精细识别（约 10–30 秒），可以先核对其他内容…'));
     try{
       const eng=await engine();let img=await loadImage(rawUrl(d.name));
       const crop=quad?{quad:quad.map(([x,y])=>[x*img.width,y*img.height])}:(d.crop&&d.crop.quad&&!d.crop.auto?{quad:d.crop.quad.map(([x,y])=>[x*img.width,y*img.height])}:null);
@@ -66,22 +66,22 @@ const SmartScan=(()=>{
       const cropOut=r.crop&&!r.crop.skipped?{quad:r.crop.quad.map(([x,y])=>[+(x/img.width).toFixed(5),+(y/img.height).toFixed(5)]),rotate:rot,auto:!quad}:(rot?{quad:[[0,0],[1,0],[1,1],[0,1]],rotate:rot,auto:!quad}:null);
       call('setCrop',index,JSON.stringify(cropOut));d.crop=cropOut||undefined;
       // Without an edit history (restored draft) every filled field counts as the user's.
-      const fresh=P.parse(r.text),old=S.mlkitParsed||null,merged=merge(fresh,old),edited=S.userEdited||Object.fromEntries(FIELDS.map(k=>[k,!!S.draft[k]]));
-      for(const k of FIELDS)if(!edited[k])S.draft[k]=merged[k]||'';
+      const fresh=P.parse(r.text,{currency:draftCurrency(S.draft)}),old=S.mlkitParsed||null,merged=merge(fresh,old),edited=S.userEdited||Object.fromEntries(FIELDS.map(k=>[k,!!S.draft[k]]));
+      for(const k of FIELDS)if(!edited[k])S.draft[k]=(k==='merchant'?P.merchantLabel(merged[k],lang()):merged[k])||'';
       S.draft.ocr=r.text;S.parsed={...fresh,...merged};
       S.warnings=[...new Set([...(r.quality?.warnings||[]),...merged.warnings,...(S.extraWarnings||[])])];
       if(cropOut)S.warnings.unshift(cropOut.auto?'已自动裁剪发票区域；如裁剪不准，请点击“调整裁剪”。原图已保留。':'已按调整后的裁剪重新识别。原图已保留。');
       showEditor();persistFields();call('updateDraft',JSON.stringify({ocr:r.text}));
     }catch(e){
       if(token===running)setStatus('');
-      if(String(e.message)!=='ocr-unavailable')toast('精细识别未完成，已保留原识别结果：'+(e.message||e));
+      if(String(e.message)!=='ocr-unavailable')toast(t('精细识别未完成，已保留原识别结果：{message}',{message:tr(e.message||e)}));
     }finally{if(token===running){S.smartScanning=false;setStatus('');}}
   }
   // ---------- crop editor ----------
   function edit(index){
     const d=S.draft?.documents?.[index];if(!isImage(d))return;
     const box=document.createElement('div');box.id='cropEditor';box.className='crop-editor';
-    box.innerHTML='<div class="crop-head"><strong>调整裁剪</strong><span>拖动四个角对准发票边缘，确保底部金额在框内</span></div><div class="crop-stage" id="cropStage"><canvas id="cropCanvas"></canvas>'+[0,1,2,3].map(i=>'<button class="crop-handle" data-h="'+i+'" aria-label="裁剪角'+(i+1)+'"></button>').join('')+'</div><div class="crop-actions"><button class="secondary" id="cropAuto">自动识别边缘</button><button class="secondary" id="cropRotate">旋转 90°</button><button class="secondary" id="cropReset">恢复原图</button></div><div class="crop-actions"><button class="secondary" id="cropCancel">取消</button><button class="primary" id="cropApply">确定并重新识别</button></div>';
+    box.innerHTML='<div class="crop-head"><strong>'+t('调整裁剪')+'</strong><span>'+t('拖动四个角对准发票边缘，确保底部金额在框内')+'</span></div><div class="crop-stage" id="cropStage"><canvas id="cropCanvas"></canvas>'+[0,1,2,3].map(i=>'<button class="crop-handle" data-h="'+i+'" aria-label="'+t('裁剪角{n}',{n:i+1})+'"></button>').join('')+'</div><div class="crop-actions"><button class="secondary" id="cropAuto">'+t('自动识别边缘')+'</button><button class="secondary" id="cropRotate">'+t('旋转 90°')+'</button><button class="secondary" id="cropReset">'+t('恢复原图')+'</button></div><div class="crop-actions"><button class="secondary" id="cropCancel">'+t('取消')+'</button><button class="primary" id="cropApply">'+t('确定并重新识别')+'</button></div>';
     document.body.appendChild(box);
     const canvas=$('cropCanvas'),stage=$('cropStage'),ctx=canvas.getContext('2d'),im=new Image();
     let quad=d.crop?.quad?d.crop.quad.map(p=>p.slice()):[[0.04,0.04],[0.96,0.04],[0.96,0.96],[0.04,0.96]],rotate=d.crop?.rotate||0,scale=1,ox=0,oy=0;
@@ -90,7 +90,7 @@ const SmartScan=(()=>{
       ctx.fillStyle='rgba(0,0,0,.45)';ctx.beginPath();ctx.rect(0,0,canvas.width,canvas.height);const pts=quad.map(([x,y])=>[x*canvas.width,y*canvas.height]);ctx.moveTo(pts[0][0],pts[0][1]);for(let i=3;i>=1;i--)ctx.lineTo(pts[i][0],pts[i][1]);ctx.closePath();ctx.fill('evenodd');
       ctx.strokeStyle='#2fbf8f';ctx.lineWidth=3;ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));ctx.closePath();ctx.stroke();
       box.querySelectorAll('.crop-handle').forEach((h,i)=>{h.style.left=(ox+pts[i][0])+'px';h.style.top=(oy+pts[i][1])+'px';});
-      $('cropRotate').textContent='旋转 90°'+(rotate?'（当前 '+rotate+'°）':'');}
+      $('cropRotate').textContent=t('旋转 90°')+(rotate?' ('+t('当前 {deg}°',{deg:rotate})+')':'');}
     let drag=-1;
     box.querySelectorAll('.crop-handle').forEach(h=>h.addEventListener('pointerdown',e=>{drag=+h.dataset.h;h.setPointerCapture(e.pointerId);e.preventDefault();}));
     box.addEventListener('pointermove',e=>{if(drag<0)return;const r=canvas.getBoundingClientRect();quad[drag]=[Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))];draw();});
@@ -99,12 +99,12 @@ const SmartScan=(()=>{
     $('cropCancel').onclick=close;
     $('cropReset').onclick=()=>{quad=[[0,0],[1,0],[1,1],[0,1]];rotate=0;draw();};
     $('cropRotate').onclick=()=>{rotate=(rotate+90)%360;draw();};
-    $('cropAuto').onclick=async()=>{const b=$('cropAuto');b.disabled=true;b.textContent='正在识别边缘…';
+    $('cropAuto').onclick=async()=>{const b=$('cropAuto');b.disabled=true;b.textContent=t('正在识别边缘…');
       try{const eng=await engine(),img=await loadImage(rawUrl(d.name)),small=ReceiptOCR.scaleImage(img,1280),info=ReceiptOCR.receiptQuad(await eng.detect(small),small.width,small.height,small);
-        if(info)quad=info.quad.map(([x,y])=>[x/small.width,y/small.height]);else toast('没有找到文字区域，请手动拖动四个角');draw();}
-      catch(e){toast('自动识别边缘失败，请手动调整');}finally{b.disabled=false;b.textContent='自动识别边缘';}};
+        if(info)quad=info.quad.map(([x,y])=>[x/small.width,y/small.height]);else toast(t('没有找到文字区域，请手动拖动四个角'));draw();}
+      catch(e){toast(t('自动识别边缘失败，请手动调整'));}finally{b.disabled=false;b.textContent=t('自动识别边缘');}};
     $('cropApply').onclick=()=>{
-      const area=ReceiptOCR.polyArea(quad);if(area<0.02){toast('裁剪区域太小，请拖动四个角包住整张发票');return;}
+      const area=ReceiptOCR.polyArea(quad);if(area<0.02){toast(t('裁剪区域太小，请拖动四个角包住整张发票'));return;}
       const full=quad.every(([x,y],i)=>Math.abs(x-[0,1,1,0][i])<0.005&&Math.abs(y-[0,0,1,1][i])<0.005);
       close();run(index,full&&!rotate?[[0,0],[1,0],[1,1],[0,1]]:quad,rotate);
     };
